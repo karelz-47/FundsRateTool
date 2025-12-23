@@ -17,41 +17,37 @@ from pathlib import Path
 import base64
 
 BASE_DIR = Path(__file__).parent
-LOGO_BIG = BASE_DIR / "assets/FundRatesTool_logo.png"
-LOGO_SMALL = BASE_DIR / "assets/FundRatesTool_logo_small.png"
+LOGO_BIG = BASE_DIR / "assets" / "FundRatesTool_logo.png"
+LOGO_SMALL = BASE_DIR / "assets" / "FundRatesTool_logo_small.png"
+
+st.set_page_config(
+    page_title="Fund Rates Tool",
+    page_icon=str(LOGO_SMALL),
+    layout="wide",
+)
 
 def render_header_with_logo(title_text: str):
-    """Render top header with logo and title aligned in one row."""
     if not LOGO_BIG.exists():
         st.title(title_text)
         return
 
-    with LOGO_BIG.open("rb") as f:
-        data = f.read()
-    b64 = base64.b64encode(data).decode("utf-8")
-
+    b64 = base64.b64encode(LOGO_BIG.read_bytes()).decode("utf-8")
     html = f"""
     <div style="
-        display: flex;
-        align-items: center;
-        gap: 1.5rem;
-        margin-bottom: 1.5rem;
+        display:flex;
+        align-items:center;
+        gap:1.25rem;
+        margin: 0 0 1.25rem 0;
     ">
       <img src="data:image/png;base64,{b64}"
-           style="height: 125px; width: auto; display: block;" />
-      <h1 style="margin: 0; font-size: 2.4rem; font-weight: 700; color: #2F3136;">
+           style="height: 90px; width:auto; display:block;" />
+      <h1 style="margin:0; font-size: 2.2rem; font-weight: 700;">
         {title_text}
       </h1>
     </div>
     """
     st.markdown(html, unsafe_allow_html=True)
 
-
-st.set_page_config(
-    page_title="Pension Options Tool",
-    page_icon=str(LOGO_SMALL),   # small logo in browser tab
-    layout="wide",
-)
 
 @st.cache_resource
 def _init():
@@ -107,7 +103,8 @@ def _current_month_range() -> tuple[date, date]:
     end = date(today.year + 1, 1, 1) if today.month == 12 else date(today.year, today.month + 1, 1)
     return start, end
 
-render_header_with_logo(t["app_title"])
+render_header_with_logo("Fund Rates Tool")
+st.caption("FX + NAV ingestion, audited calculation, XLS/CSV export")
 
 page = st.sidebar.radio(
     "Menu",
@@ -409,6 +406,7 @@ with SessionLocal() as session:
 
             df = pd.DataFrame(out).sort_values("Date")
             st.dataframe(df, use_container_width=True)
+
 
 
 
