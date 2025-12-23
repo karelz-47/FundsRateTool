@@ -13,8 +13,15 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship,
 
 
 def _normalize_db_url(url: str) -> str:
+    # Railway sometimes provides postgres:// which SQLAlchemy accepts as postgresql://
     if url.startswith("postgres://"):
-        return url.replace("postgres://", "postgresql://", 1)
+        url = url.replace("postgres://", "postgresql://", 1)
+
+    # Force SQLAlchemy to use psycopg v3 (NOT psycopg2)
+    # This avoids: ModuleNotFoundError: No module named 'psycopg2'
+    if url.startswith("postgresql://") and "+psycopg" not in url:
+        url = url.replace("postgresql://", "postgresql+psycopg://", 1)
+
     return url
 
 
@@ -118,3 +125,4 @@ def init_db():
 def compute_input_hash(payload: Dict[str, Any]) -> str:
     b = json.dumps(payload, sort_keys=True, default=str).encode("utf-8")
     return hashlib.sha256(b).hexdigest()
+
