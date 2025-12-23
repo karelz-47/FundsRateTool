@@ -14,10 +14,44 @@ from calc import compute_outputs
 from export import to_csv_bytes, to_xlsx_bytes
 from config import NAV_CURRENCY, SERIES_ORDER, TR_YEARLY_YIELD_DEFAULT
 from pathlib import Path
+import base64
 
-LOGO_PATH = Path("/app/assets/FundRatesTool_logo.png")
+BASE_DIR = Path(__file__).parent
+LOGO_BIG = BASE_DIR / "assets/FundRatesTool_logo.png"
+LOGO_SMALL = BASE_DIR / "assets/FundRatesTool_logo_small.png"
 
-st.set_page_config(page_title="Fund Rates Tool", layout="wide", page_icon=str(LOGO_PATH))
+def render_header_with_logo(title_text: str):
+    """Render top header with logo and title aligned in one row."""
+    if not LOGO_BIG.exists():
+        st.title(title_text)
+        return
+
+    with LOGO_BIG.open("rb") as f:
+        data = f.read()
+    b64 = base64.b64encode(data).decode("utf-8")
+
+    html = f"""
+    <div style="
+        display: flex;
+        align-items: center;
+        gap: 1.5rem;
+        margin-bottom: 1.5rem;
+    ">
+      <img src="data:image/png;base64,{b64}"
+           style="height: 125px; width: auto; display: block;" />
+      <h1 style="margin: 0; font-size: 2.4rem; font-weight: 700; color: #2F3136;">
+        {title_text}
+      </h1>
+    </div>
+    """
+    st.markdown(html, unsafe_allow_html=True)
+
+
+st.set_page_config(
+    page_title="Pension Options Tool",
+    page_icon=str(LOGO_SMALL),   # small logo in browser tab
+    layout="wide",
+)
 
 @st.cache_resource
 def _init():
@@ -381,6 +415,7 @@ with SessionLocal() as session:
 
             df = pd.DataFrame(out).sort_values("Date")
             st.dataframe(df, use_container_width=True)
+
 
 
 
