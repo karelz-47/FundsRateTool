@@ -13,10 +13,12 @@ from nav_parser import parse_baha_paste
 from calc import compute_outputs
 from export import to_csv_bytes, to_xlsx_bytes
 from config import NAV_CURRENCY, SERIES_ORDER, TR_YEARLY_YIELD_DEFAULT
+from pathlib import Path
 
+APP_DIR = Path(__file__).parent
+LOGO_PATH = APP_DIR / "assets" / "FundRatesTool_logo.png"
 
-st.set_page_config(page_title="Fund Rates Calculator", layout="wide")
-
+st.set_page_config(page_title="Fund Rates Tool", layout="wide", page_icon=str(LOGO_PATH))
 
 @st.cache_resource
 def _init():
@@ -73,7 +75,12 @@ def _current_month_range() -> tuple[date, date]:
     return start, end
 
 
-st.title("Fund Rates Calculator (FX+NAV, audited, exportable)")
+col1, col2 = st.columns([1, 5])
+with col1:
+    st.image(str(LOGO_PATH), width=90)
+with col2:
+    st.title("Fund Rates Tool")
+    st.caption("FX + NAV ingestion, audited calculation, XLS/CSV export")
 
 page = st.sidebar.radio(
     "Menu",
@@ -375,3 +382,4 @@ with SessionLocal() as session:
 
             df = pd.DataFrame(out).sort_values("Date")
             st.dataframe(df, use_container_width=True)
+
