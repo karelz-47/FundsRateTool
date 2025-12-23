@@ -15,8 +15,8 @@ from export import to_csv_bytes, to_xlsx_bytes
 from config import NAV_CURRENCY, SERIES_ORDER, TR_YEARLY_YIELD_DEFAULT
 from pathlib import Path
 
-APP_DIR = Path(__file__).parent
-LOGO_PATH = APP_DIR / "assets" / "FundRatesTool_logo.png"
+LOGO_PATH = Path("/app/assets/FundRatesTool_logo.png")
+st.image(str(LOGO_PATH), width=90)
 
 st.set_page_config(page_title="Fund Rates Tool", layout="wide", page_icon=str(LOGO_PATH))
 
@@ -382,4 +382,5 @@ with SessionLocal() as session:
 
             df = pd.DataFrame(out).sort_values("Date")
             st.dataframe(df, use_container_width=True)
+
 
