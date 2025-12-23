@@ -107,13 +107,7 @@ def _current_month_range() -> tuple[date, date]:
     end = date(today.year + 1, 1, 1) if today.month == 12 else date(today.year, today.month + 1, 1)
     return start, end
 
-
-col1, col2 = st.columns([1, 5])
-with col1:
-    st.image(str(LOGO_PATH), width=90)
-with col2:
-    st.title("Fund Rates Tool")
-    st.caption("FX + NAV ingestion, audited calculation, XLS/CSV export")
+render_header_with_logo(t["app_title"])
 
 page = st.sidebar.radio(
     "Menu",
@@ -415,6 +409,7 @@ with SessionLocal() as session:
 
             df = pd.DataFrame(out).sort_values("Date")
             st.dataframe(df, use_container_width=True)
+
 
 
 
