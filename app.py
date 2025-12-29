@@ -140,7 +140,17 @@ with SessionLocal() as session:
 
                 try:
                     rates = parse_tb_rates_from_csv_bytes(f.getvalue())
-                    st.json({"rate_date": str(chosen_dt), **rates})
+                    preview_df = pd.DataFrame([{
+                        "rate_date": chosen_dt,
+                        "huf_buy": rates["huf_buy"],
+                        "huf_sell": rates["huf_sell"],
+                        "huf_mid": rates["huf_mid"],
+                        "usd_buy": rates["usd_buy"],
+                        "usd_sell": rates["usd_sell"],
+                        "usd_mid": rates["usd_mid"],
+                    }])
+                    st.dataframe(preview_df, 
+                    use_container_width=True, hide_index=True)
 
                     if st.button(f"Save FX for {chosen_dt} ({f.name})", key=f"save_fx_{f.name}"):
                         obj = session.execute(select(FxRate).where(FxRate.rate_date == chosen_dt)).scalar_one_or_none()
@@ -406,6 +416,7 @@ with SessionLocal() as session:
 
             df = pd.DataFrame(out).sort_values("Date")
             st.dataframe(df, use_container_width=True)
+
 
 
 
