@@ -122,7 +122,6 @@ with SessionLocal() as session:
 
         uploaded_files = st.file_uploader(
             "Upload TB CSV (you may upload multiple files)",
-            type=["csv"],
             accept_multiple_files=True
         )
 
@@ -416,6 +415,7 @@ with SessionLocal() as session:
 
             df = pd.DataFrame(out).sort_values("Date")
             st.dataframe(df, use_container_width=True)
+
 
 
 
