@@ -16,7 +16,6 @@ from db import (
     init_db,
     FxRate,
     FundNav,
-    CashAlloc,
     CalcRun,
     CalcDaily,
     compute_input_hash,
@@ -220,26 +219,6 @@ def _load_nav(session) -> pd.DataFrame:
         )
         .sort_values(["nav_date", "isin"])
     )
-
-
-def _load_cash(session) -> pd.DataFrame:
-    rows = session.execute(select(CashAlloc)).scalars().all()
-    if not rows:
-        return pd.DataFrame(columns=["alloc_date", "series_code", "cash_pct"])
-    return (
-        pd.DataFrame(
-            [
-                {
-                    "alloc_date": r.alloc_date,
-                    "series_code": r.series_code,
-                    "cash_pct": r.cash_pct,
-                }
-                for r in rows
-            ]
-        )
-        .sort_values(["alloc_date", "series_code"])
-    )
-
 
 def _current_month_range() -> Tuple[date, date]:
     today = date.today()
@@ -465,7 +444,6 @@ with SessionLocal() as session:
         fx_df = _load_fx(session)
         nav_df = _load_nav(session)
         # no cash_df; cash is config-driven
-        "cash_mode": "config_constants",
 
         colA, colB, colC = st.columns(3)
         with colA:
@@ -494,7 +472,6 @@ with SessionLocal() as session:
             out_df, meta, coverage = compute_outputs(
                 fx_df=fx_df,
                 nav_df=nav_df,
-                cash_df=cash_df,
                 tr_yearly_yield=float(tr_yield),
                 require_all_navs=require_all_navs,
                 require_fx_same_day=require_fx_same_day,
@@ -562,7 +539,6 @@ with SessionLocal() as session:
                     "filter_to": str(date_to),
                     "fx_rows": int(len(fx_df)),
                     "nav_rows": int(len(nav_df)),
-                    "cash_rows": int(len(cash_df)),
                     "valid_dates": coverage.get("valid_dates", []),
                 }
                 h = compute_input_hash(payload)
@@ -586,7 +562,7 @@ with SessionLocal() as session:
     # -------------------------------------------------------------------------
     # 5) Audit runs
     # -------------------------------------------------------------------------
-    elif page == t("menu_audit", "5) Audit runs"):
+    elif page == t("menu_audit", "4) Audit runs"):
         st.subheader(t("audit_page_title", "Audit: saved calculation runs"))
 
         runs = session.execute(select(CalcRun).order_by(CalcRun.run_ts.desc())).scalars().all()
@@ -621,6 +597,7 @@ with SessionLocal() as session:
 
             df = pd.DataFrame(out).sort_values("Date") if out else pd.DataFrame()
             st.dataframe(df, use_container_width=True)
+
 
 
 
