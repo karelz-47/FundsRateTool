@@ -12,6 +12,7 @@ import streamlit as st
 import backfill_legacy
 from db_upsert import upsert_published_rates
 from sqlalchemy import (
+    select,
     Column,
     Integer,
     String,
@@ -730,6 +731,7 @@ with SessionLocal() as session:
         if st.button("Import / Upsert into DB"):
             n = upsert_published_rates(session, df_long, source="xlsm_backfill")
             st.success(f"Upserted {n:,} rows into published_rates")
+
 
 
 
