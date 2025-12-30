@@ -1,16 +1,62 @@
 from __future__ import annotations
 
 from datetime import date
-from typing import Dict, Tuple, Optional
+from typing import Dict, Tuple
 
 import numpy as np
 import pandas as pd
 
 from config import (
-    NAV_CURRENCY, PORTFOLIO_WEIGHTS,
-    TR_YEARLY_YIELD_DEFAULT, TR_HUF_BASE_DATE, TR_EUR_BASE_DATE, TR_EUR_BASE_FX_FALLBACK,
-    ROUND_DECIMALS, SERIES_ORDER
+    NAV_CURRENCY,
+    PORTFOLIO_WEIGHTS,
+    TR_YEARLY_YIELD_DEFAULT,
+    TR_HUF_BASE_DATE,
+    TR_EUR_BASE_DATE,
+    TR_EUR_BASE_FX_FALLBACK,
+    ROUND_DECIMALS,
+    SERIES_ORDER,
 )
+
+# =============================================================================
+# CASH ALLOCATION POLICY (CONFIG-IN-CODE)
+# -----------------------------------------------------------------------------
+# - Guaranteed funds: cash_pct = 0.00
+# - Others: set by mapping below; default is 0.00 if not listed.
+#
+# EDIT HERE if cash policy changes.
+# Keys MUST match the output series codes (columns) used in the calculation:
+#   - "TR_HUF", "TR_EUR"
+#   - ISINs (e.g., "LU0329678410")
+#   - Portfolio columns ("CONSERVATIVE", "BALANCED", "DYNAMIC") if you want them damped
+# =============================================================================
+
+GUARANTEED_SERIES = {
+    "TR_HUF",
+    "TR_EUR",
+}
+
+DEFAULT_CASH_PCT = 0.00
+
+CASH_PCT_BY_SERIES: Dict[str, float] = {
+    # Example: apply 5% cash damping to selected series (edit as needed)
+    # (These keys are ISINs in this codebase, because output includes ISIN columns.)
+    "LU0329678410": 0.05,  # Fidelity Funds - Emerging Asia Fund A-ACC-Euro
+    "LU0605515377": 0.05,  # Fidelity Funds - Global Dividend Fund A-ACC-Euro (hedged)
+    "LU0740858492": 0.05,  # JPMorgan Investment Funds - Global Income Fund D (acc) - EUR
+    "LU0862449690": 0.05,  # JPMorgan Funds - Emerging Markets Dividend Fund A (acc) - EUR
+    "LU1088281024": 0.05,  # Fidelity Funds - Global Multi Asset Income Fund A-ACC-HUF (hedged)
+
+    # If you want damping on portfolios too, add:
+    # "CONSERVATIVE": 0.05,
+    # "BALANCED": 0.05,
+    # "DYNAMIC": 0.05,
+}
+
+def cash_pct_for_series(series_code: str) -> float:
+    """Return constant cash allocation percent for a given output series."""
+    if series_code in GUARANTEED_SERIES:
+        return 0.0
+    return float(CASH_PCT_BY_SERIES.get(series_code, DEFAULT_CASH_PCT))
 
 
 def daily_yield_from_yearly(yearly: float) -> float:
@@ -20,7 +66,6 @@ def daily_yield_from_yearly(yearly: float) -> float:
 def compute_outputs(
     fx_df: pd.DataFrame,
     nav_df: pd.DataFrame,
-    cash_df: Optional[pd.DataFrame],
     tr_yearly_yield: float = TR_YEARLY_YIELD_DEFAULT,
     require_all_navs: bool = True,
     require_fx_same_day: bool = False,
@@ -43,7 +88,9 @@ def compute_outputs(
             "nav_dates_missing_fx": [],
             "nav_dates_incomplete": [],
             "nav_dates_in_db": [],
-            "fx_dates_in_db": sorted(pd.to_datetime(fx_df["rate_date"]).dt.date.unique().tolist()) if fx_df is not None and not fx_df.empty else [],
+            "fx_dates_in_db": sorted(pd.to_datetime(fx_df["rate_date"]).dt.date.unique().tolist())
+            if fx_df is not None and not fx_df.empty
+            else [],
             "require_all_navs": require_all_navs,
             "require_fx_same_day": require_fx_same_day,
         }
@@ -142,10 +189,6 @@ def compute_outputs(
     base_fx = TR_EUR_BASE_FX_FALLBACK
     if TR_EUR_BASE_DATE in set(valid_dates.date.tolist()):
         base_fx = float(fx_asof_valid.loc[pd.Timestamp(TR_EUR_BASE_DATE), "huf_per_eur"])
-    else:
-        # If base date not in valid range, try to get as-of FX for that base date from full fx table
-        # (still deterministic; optional enhancement)
-        pass
 
     tr_eur = pd.Series(tr_eur_raw * fx_asof_valid["huf_per_eur"].to_numpy() / base_fx, index=valid_dates)
 
@@ -198,17 +241,7 @@ def compute_outputs(
     base["BALANCED"] = port_bal
     base["DYNAMIC"] = port_dyn
 
-    # Cash allocation delta-damping (optional)
-    if cash_df is None or cash_df.empty:
-        cash_map = None
-    else:
-        cash = cash_df.copy()
-        cash["alloc_date"] = pd.to_datetime(cash["alloc_date"]).dt.normalize()
-        cash_map = (
-            cash.sort_values("alloc_date")
-                .pivot_table(index="alloc_date", columns="series_code", values="cash_pct", aggfunc="last")
-        )
-
+    # Cash allocation delta-damping (constant policy)
     out = pd.DataFrame(index=valid_dates, columns=base.columns, dtype=float)
     out.iloc[0] = base.iloc[0]
 
@@ -216,11 +249,7 @@ def compute_outputs(
         t = valid_dates[i]
         t0 = valid_dates[i - 1]
         for col in base.columns:
-            cash_pct = 0.0
-            if cash_map is not None and col in cash_map.columns and t in cash_map.index:
-                v = cash_map.at[t, col]
-                if not pd.isna(v):
-                    cash_pct = float(v)
+            cash_pct = cash_pct_for_series(col)
             out.at[t, col] = out.at[t0, col] + (base.at[t, col] - base.at[t0, col]) * (1.0 - cash_pct)
 
     out = out.round(ROUND_DECIMALS)
@@ -235,6 +264,12 @@ def compute_outputs(
         "base_date_for_normalization": str(base_date.date()),
         "require_all_navs": require_all_navs,
         "require_fx_same_day": require_fx_same_day,
+        "cash_policy": {
+            "mode": "constants_in_code",
+            "guaranteed_series": sorted(list(GUARANTEED_SERIES)),
+            "default_cash_pct": DEFAULT_CASH_PCT,
+            "cash_pct_by_series": CASH_PCT_BY_SERIES,
+        },
     }
 
     return out, meta, coverage
