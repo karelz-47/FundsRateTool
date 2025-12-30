@@ -116,6 +116,18 @@ class CalcDaily(Base):
 
     run: Mapped["CalcRun"] = relationship(back_populates="rows")
 
+class PublishedRate(Base):
+    __tablename__ = "published_rates"
+    id = Column(Integer, primary_key=True, index=True)
+    rate_date = Column(Date, nullable=False, index=True)
+    series_code = Column(String(32), nullable=False, index=True)  # TR_HUF, ISIN, CONSERVATIVE...
+    value = Column(Float, nullable=False)
+    source = Column(String(64), nullable=False, default="xlsm_backfill")
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("rate_date", "series_code", name="uq_published_rates_date_code"),
+    )
 
 def init_db():
     eng = get_engine()
@@ -125,4 +137,5 @@ def init_db():
 def compute_input_hash(payload: Dict[str, Any]) -> str:
     b = json.dumps(payload, sort_keys=True, default=str).encode("utf-8")
     return hashlib.sha256(b).hexdigest()
+
 
