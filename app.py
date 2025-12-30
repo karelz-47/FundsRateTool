@@ -360,7 +360,7 @@ with SessionLocal() as session:
         fx_df = _load_fx(session)
         st.dataframe(fx_df, use_container_width=True)
 
-    # -------------------------------------------------------------------------
+# -------------------------------------------------------------------------
     # 2) NAV Paste
     # -------------------------------------------------------------------------
     elif page == t("menu_nav", "2) Paste NAV email"):
@@ -373,19 +373,17 @@ with SessionLocal() as session:
         )
 
         only_isins = set(NAV_CURRENCY.keys())
-        df_known = df[df["isin"].isin(only_isins)].copy()
-        df_unknown = df[~df["isin"].isin(only_isins)].copy()
 
-        if not df_unknown.empty:
-           st.warning(f"Unknown ISINs (not in NAV_CURRENCY mapping): {sorted(df_unknown['isin'].unique())}")
-
-# show df_known and save df_known
         pasted = st.text_area(t("nav_paste_label", "Paste email text here"), height=360)
 
+        # Parse
         if st.button(t("nav_parse_btn", "Parse NAVs")):
             try:
-                df, email_dt = parse_baha_paste(pasted, only_isins=none)
-                st.info(f"{t('nav_email_date_detected', 'Detected email date')}: {email_dt.strftime('%d.%m.%Y')}")
+                df, email_dt = parse_baha_paste(pasted, only_isins=only_isins)  # FIX: was `none`
+                st.info(
+                    f"{t('nav_email_date_detected', 'Detected email date')}: {email_dt.strftime('%d.%m.%Y')}"
+                )
+
                 if df.empty:
                     st.warning(
                         t(
@@ -393,17 +391,31 @@ with SessionLocal() as session:
                             "No NAV rows detected. Ensure ISIN lines and NAV price lines are included.",
                         )
                     )
+                    st.session_state.pop("parsed_nav_df", None)
                 else:
-                    st.dataframe(df, use_container_width=True)
                     st.session_state["parsed_nav_df"] = df
+
             except Exception as e:
                 st.error(str(e))
+                st.session_state.pop("parsed_nav_df", None)
 
+        # Display / save (only when parsed df exists)
         if "parsed_nav_df" in st.session_state:
+            df = st.session_state["parsed_nav_df"]
+
+            df_known = df[df["isin"].isin(only_isins)].copy()
+            df_unknown = df[~df["isin"].isin(only_isins)].copy()
+
+            if not df_unknown.empty:
+                st.warning(
+                    f"Unknown ISINs (not in NAV_CURRENCY mapping): {sorted(df_unknown['isin'].unique())}"
+                )
+
+            st.dataframe(df_known, use_container_width=True)
+
             if st.button(t("nav_save_btn", "Save parsed NAVs to DB")):
-                df = st.session_state["parsed_nav_df"]
                 saved = 0
-                for _, r in df.iterrows():
+                for _, r in df_known.iterrows():
                     obj = (
                         session.execute(
                             select(FundNav)
@@ -429,6 +441,7 @@ with SessionLocal() as session:
                         obj.currency = str(r["currency"])
                         obj.fund_name = r.get("fund_name", obj.fund_name)
                         obj.raw_excerpt = r.get("raw_excerpt", obj.raw_excerpt)
+
                     saved += 1
 
                 session.commit()
@@ -438,6 +451,7 @@ with SessionLocal() as session:
         st.markdown(f"### {t('nav_rows_db', 'NAV rows stored in DB')}")
         nav_df = _load_nav(session)
         st.dataframe(nav_df, use_container_width=True)
+
 
     # -------------------------------------------------------------------------
     # 3) Cash allocation
@@ -669,5 +683,6 @@ with SessionLocal() as session:
 
             df = pd.DataFrame(out).sort_values("Date") if out else pd.DataFrame()
             st.dataframe(df, use_container_width=True)
+
 
 
