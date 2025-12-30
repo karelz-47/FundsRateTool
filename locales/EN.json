@@ -7,9 +7,9 @@
 
   "menu_fx": "1) Import FX (TB CSV)",
   "menu_nav": "2) Paste NAV email",
-  "menu_cash": "3) Cash allocation",
-  "menu_calc": "4) Calculate & Export",
-  "menu_audit": "5) Audit runs",
+  "menu_calc": "3) Calculate & Export",
+  "menu_audit": "4) Audit runs",
+  "menu_backfill": "5) Backfill",
 
   "fx_title": "Import Tatra banka exchange rates from CSV (snapshot)",
   "fx_caption": "Upload TB 'Kurzový lístok' CSV. The file contains HUF/USD devíza buy/sell/mid but does not carry a date column, so you must assign the snapshot date.",
