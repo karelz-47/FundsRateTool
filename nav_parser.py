@@ -134,23 +134,65 @@ def infer_nav_date_from_ddmm(nav_day: int, nav_month: int, email_dt: date) -> da
     return date(nav_year, nav_month, nav_day)
 
 
-def guess_fund_name(lines: List[str], isin_idx: int) -> Optional[str]:
-    bad = {
-        "name", "isin", "type", "exchange", "date", "time",
-        "last", "curr", "chg", "chart", "fonds", "funds", "settings",
-        "securities price notification"
+def guess_fund_name(lines: list[str], isin_idx: int) -> Optional[str]:
+    """
+    For BAHA paste: fund name is the closest meaningful line immediately above the ISIN line.
+    Avoid scanning too far back (prevents capturing previous fund's % line).
+    """
+    bad_exact = {
+        "fonds", "funds", "chart", "settings", "unsubscribe",
+        "securities price notification", "legal notice", "terms of use",
+        "name", "isin / type", "exchange", "date / time", "last curr.", "chg.", "chg. (%)",
+        "image",
     }
-    for j in range(isin_idx - 1, max(-1, isin_idx - 8), -1):
-        ln = lines[j]
-        low = ln.lower()
-        if any(tok in low for tok in bad):
-            continue
-        if ISIN_RE.search(ln):
-            continue
-        if len(ln) >= 6:
-            return ln
-    return None
 
+    def is_noise(s: str) -> bool:
+        s = s.strip()
+        if not s:
+            return True
+        low = s.lower()
+
+        # exact noise lines
+        if low in bad_exact:
+            return True
+
+        # numeric lines (chg, nav etc.)
+        if re.fullmatch(r"[+-]?\d+(?:[.,]\d+)?", s):
+            return True
+
+        # percent-only lines like -1.11%
+        if re.fullmatch(r"[+-]?\d+(?:[.,]\d+)?%", s):
+            return True
+
+        # currency-price lines (NAV) like "37.4900 USD" or "4,919.0000 HUF"
+        if re.search(r"\b(USD|EUR|HUF)\b", s, flags=re.IGNORECASE) and re.search(r"\d", s):
+            return True
+
+        # date line like 22.12.
+        if re.fullmatch(r"\d{1,2}\.\d{1,2}\.", s):
+            return True
+
+        # ISIN line itself
+        if ISIN_RE.search(s):
+            return True
+
+        # short junk
+        if len(s) < 8:
+            return True
+
+        # must contain at least one letter
+        if not re.search(r"[A-Za-zÁÄČĎÉÍĹĽŇÓÔŔŠŤÚÝŽŐŰáäčďéíĺľňóôŕšťúýžőű]", s):
+            return True
+
+        return False
+
+    # Look only a few lines up from the ISIN line to avoid crossing fund boundaries
+    for j in range(isin_idx - 1, max(-1, isin_idx - 6), -1):
+        cand = lines[j].strip()
+        if not is_noise(cand):
+            return cand
+
+    return None
 
 def parse_baha_paste(pasted_text: str, only_isins: Optional[set[str]] = None):
     email_dt = extract_email_date(pasted_text)
@@ -221,4 +263,5 @@ def parse_baha_paste(pasted_text: str, only_isins: Optional[set[str]] = None):
 
     df = df.sort_values(["nav_date", "isin"]).drop_duplicates(["nav_date", "isin"], keep="last")
     return df, email_dt
+
 
