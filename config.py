@@ -128,3 +128,30 @@ TR_EUR_BASE_DATE = date(2015, 6, 1)
 TR_EUR_BASE_FX_FALLBACK = 313.03  # used if FX missing for 2015-06-01
 
 ROUND_DECIMALS = 5
+
+# config.py
+
+# 1) Guaranteed fund series codes (FORCE cash_pct=0.0)
+GUARANTEED_SERIES_CODES = {
+    # Replace these keys with your actual SERIES_ORDER codes for guaranteed funds
+    "NOVIS_GAR_HUF",
+    "NOVIS_GAR_EUR",
+}
+
+# 2) Cash allocation per series (non-guaranteed)
+# Values are constants and easy to edit.
+# Any series not listed here will fall back to DEFAULT_CASH_PCT.
+DEFAULT_CASH_PCT = 0.00
+
+CASH_PCT_BY_SERIES = {
+    # Set to 0.05 (5%) for the non-guaranteed series that should use cash damping.
+    # Replace keys with YOUR actual series codes from SERIES_ORDER.
+    "FID_EM_ASIA": 0.05,       # LU0329678410
+    "FID_GLOB_DIV_HDG": 0.05,  # LU0605515377
+    "JPM_GLOB_INCOME": 0.05,   # LU0740858492
+    "JPM_EM_DIV": 0.05,        # LU0862449690
+    "FID_MULTI_ASSET": 0.05,   # LU1088281024
+
+    # Everything else (including Templeton, HOLD/HU funds, JPM LatAm) effectively 0.00 by default,
+    # and guaranteed funds are hard-forced to 0.00 via GUARANTEED_SERIES_CODES.
+}
