@@ -10,7 +10,20 @@ from typing import Any, Dict, Optional, Tuple
 import pandas as pd
 import streamlit as st
 import backfill_legacy
-from sqlalchemy import select, func
+from db_upsert import upsert_published_rates
+from sqlalchemy import (
+    Column,
+    Integer,
+    String,
+    Date,
+    DateTime,
+    Float,          # or use Numeric instead (recommended for money-like series)
+    Numeric,
+    UniqueConstraint,
+    create_engine,
+    func,
+)
+from sqlalchemy.orm import declarative_base, sessionmaker
 
 from db import (
     SessionLocal,
@@ -717,6 +730,7 @@ with SessionLocal() as session:
         if st.button("Import / Upsert into DB"):
             n = upsert_published_rates(session, df_long, source="xlsm_backfill")
             st.success(f"Upserted {n:,} rows into published_rates")
+
 
 
 
