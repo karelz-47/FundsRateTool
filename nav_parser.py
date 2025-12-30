@@ -11,7 +11,8 @@ from dateutil import parser as dateparser
 ISIN_RE = re.compile(r"\b[A-Z]{2}[A-Z0-9]{10}\b")
 
 # dd.mm. (no year) in BAHA blocks
-DATE_DDMM_RE = re.compile(r"\b(\d{1,2})\.(\d{1,2})\.\b")
+# dd.mm. (no year). Works at end-of-line too.
+DATE_DDMM_RE = re.compile(r"\b(\d{1,2})\.(\d{1,2})\.(?!\d)")
 
 # NAV + currency anywhere in a line (works even if line starts with '# ')
 PRICE_LINE_RE = re.compile(
@@ -220,3 +221,4 @@ def parse_baha_paste(pasted_text: str, only_isins: Optional[set[str]] = None):
 
     df = df.sort_values(["nav_date", "isin"]).drop_duplicates(["nav_date", "isin"], keep="last")
     return df, email_dt
+
