@@ -373,7 +373,6 @@ with SessionLocal() as session:
         )
 
         only_isins = set(NAV_CURRENCY.keys())
-        only_isins = set(NAV_CURRENCY.keys())
         df_known = df[df["isin"].isin(only_isins)].copy()
         df_unknown = df[~df["isin"].isin(only_isins)].copy()
 
@@ -670,4 +669,5 @@ with SessionLocal() as session:
 
             df = pd.DataFrame(out).sort_values("Date") if out else pd.DataFrame()
             st.dataframe(df, use_container_width=True)
+
 
