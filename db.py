@@ -10,6 +10,7 @@ from sqlalchemy import (
     create_engine, String, Integer, Date, DateTime, Float, Text, ForeignKey, UniqueConstraint, Index
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship, sessionmaker
+from sqlalchemy.sql import func
 
 
 def _normalize_db_url(url: str) -> str:
@@ -29,75 +30,59 @@ def get_engine():
     db_url = os.getenv("DATABASE_URL")
     if db_url:
         db_url = _normalize_db_url(db_url)
-        return create_engine(db_url, pool_pre_ping=True)
-    return create_engine("sqlite:///app.db", connect_args={"check_same_thread": False})
-
-
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=get_engine())
+    else:
+        # local fallback
+        db_url = "sqlite:///./local.db"
+    return create_engine(db_url, pool_pre_ping=True)
 
 
 class Base(DeclarativeBase):
     pass
 
 
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=get_engine())
+
+
 class FxRate(Base):
-    __tablename__ = "fx_rates_tb"
+    __tablename__ = "fx_rate"
     __table_args__ = (UniqueConstraint("rate_date", name="uq_fx_rate_date"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    rate_date: Mapped[date] = mapped_column(Date, nullable=False)
+    rate_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
 
     huf_buy: Mapped[float] = mapped_column(Float, nullable=False)
-    huf_sell: Mapped[float] = mapped_column(Float, nullable=False)
     huf_mid: Mapped[float] = mapped_column(Float, nullable=False)
-
-    usd_buy: Mapped[float] = mapped_column(Float, nullable=False)
     usd_sell: Mapped[float] = mapped_column(Float, nullable=False)
-    usd_mid: Mapped[float] = mapped_column(Float, nullable=False)
 
-    source: Mapped[str] = mapped_column(String(32), default="csv_import")
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
 class FundNav(Base):
     __tablename__ = "fund_nav"
-    __table_args__ = (
-        UniqueConstraint("nav_date", "isin", name="uq_nav_date_isin"),
-        Index("ix_nav_date", "nav_date"),
-        Index("ix_nav_isin", "isin"),
-    )
+    __table_args__ = (UniqueConstraint("nav_date", "isin", name="uq_nav_date_isin"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    nav_date: Mapped[date] = mapped_column(Date, nullable=False)
-    isin: Mapped[str] = mapped_column(String(16), nullable=False)
+    nav_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    isin: Mapped[str] = mapped_column(String(16), nullable=False, index=True)
 
     nav: Mapped[float] = mapped_column(Float, nullable=False)
-    currency: Mapped[str] = mapped_column(String(8), nullable=False)
+    ccy: Mapped[str] = mapped_column(String(3), nullable=False)
+
     fund_name: Mapped[Optional[str]] = mapped_column(String(256), nullable=True)
 
-    source: Mapped[str] = mapped_column(String(32), default="paste")
-    raw_excerpt: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    source_email_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    raw_hash: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
 
-
-class CashAlloc(Base):
-    __tablename__ = "cash_alloc"
-    __table_args__ = (UniqueConstraint("alloc_date", "series_code", name="uq_alloc_date_series"),)
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    alloc_date: Mapped[date] = mapped_column(Date, nullable=False)
-    series_code: Mapped[str] = mapped_column(String(32), nullable=False)
-    cash_pct: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)  # 0..1
-
-    source: Mapped[str] = mapped_column(String(32), default="manual")
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
 class CalcRun(Base):
     __tablename__ = "calc_run"
+    __table_args__ = (UniqueConstraint("input_hash", name="uq_calc_run_input_hash"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    run_ts: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
     params_json: Mapped[str] = mapped_column(Text, nullable=False)
     input_hash: Mapped[str] = mapped_column(String(64), nullable=False)
 
@@ -116,18 +101,22 @@ class CalcDaily(Base):
 
     run: Mapped["CalcRun"] = relationship(back_populates="rows")
 
+
 class PublishedRate(Base):
     __tablename__ = "published_rates"
-    id = Column(Integer, primary_key=True, index=True)
-    rate_date = Column(Date, nullable=False, index=True)
-    series_code = Column(String(32), nullable=False, index=True)  # TR_HUF, ISIN, CONSERVATIVE...
-    value = Column(Float, nullable=False)
-    source = Column(String(64), nullable=False, default="xlsm_backfill")
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-
     __table_args__ = (
         UniqueConstraint("rate_date", "series_code", name="uq_published_rates_date_code"),
+        Index("ix_published_rates_rate_date", "rate_date"),
+        Index("ix_published_rates_series_code", "series_code"),
     )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    rate_date: Mapped[date] = mapped_column(Date, nullable=False)
+    series_code: Mapped[str] = mapped_column(String(32), nullable=False)  # TR_HUF, ISIN, CONSERVATIVE...
+    value: Mapped[float] = mapped_column(Float, nullable=False)
+    source: Mapped[str] = mapped_column(String(64), nullable=False, default="xlsm_backfill")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
 
 def init_db():
     eng = get_engine()
@@ -137,5 +126,3 @@ def init_db():
 def compute_input_hash(payload: Dict[str, Any]) -> str:
     b = json.dumps(payload, sort_keys=True, default=str).encode("utf-8")
     return hashlib.sha256(b).hexdigest()
-
-
