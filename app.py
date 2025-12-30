@@ -9,7 +9,8 @@ from typing import Any, Dict, Optional, Tuple
 
 import pandas as pd
 import streamlit as st
-from sqlalchemy import select
+import backfill_legacy
+from sqlalchemy import select, func
 
 from db import (
     SessionLocal,
@@ -19,6 +20,7 @@ from db import (
     CalcRun,
     CalcDaily,
     compute_input_hash,
+    PublishedRate,
 )
 from fx_import import parse_tb_rates_from_csv_bytes, try_parse_date_from_filename
 from nav_parser import parse_baha_paste
@@ -226,7 +228,27 @@ def _current_month_range() -> Tuple[date, date]:
     end = date(today.year + 1, 1, 1) if today.month == 12 else date(today.year, today.month + 1, 1)
     return start, end
 
+def _load_published(session, start: date, end: date) -> pd.DataFrame:
+    rows = session.execute(
+        select(PublishedRate)
+        .where(PublishedRate.rate_date >= start)
+        .where(PublishedRate.rate_date <= end)
+    ).scalars().all()
 
+    if not rows:
+        return pd.DataFrame(columns=["rate_date", "series_code", "value"])
+
+    return pd.DataFrame([{
+        "rate_date": r.rate_date,
+        "series_code": r.series_code,
+        "value": r.value,
+        "source": r.source,
+    } for r in rows]).sort_values(["rate_date", "series_code"])
+
+def get_published_watermark(session):
+    # returns datetime.date or None
+    return session.execute(select(func.max(PublishedRate.rate_date))).scalar_one()
+    
 # =============================================================================
 # Language switcher (works even if only EN.json exists)
 # =============================================================================
@@ -252,13 +274,14 @@ render_header_with_logo(t("app_title", "Fund Rates Tool"))
 st.caption(t("app_subtitle", "FX + NAV ingestion, audited calculation, XLS/CSV export"))
 
 page = st.sidebar.radio(
-    t("menu", "Menu"),
+    t("menu"),
     [
-        t("menu_fx", "1) Import FX (TB CSV)"),
-        t("menu_nav", "2) Paste NAV email"),
-        t("menu_calc", "3) Calculate & Export"),
-        t("menu_audit", "4) Audit runs"),
-    ],
+        t("menu_fx"),
+        t("menu_nav"),
+        t("menu_calc"),
+        t("menu_audit"),
+        t("menu_backfill")
+    ]
 )
 
 with SessionLocal() as session:
@@ -338,7 +361,7 @@ with SessionLocal() as session:
         fx_df = _load_fx(session)
         st.dataframe(fx_df, use_container_width=True)
 
-# -------------------------------------------------------------------------
+    # -------------------------------------------------------------------------
     # 2) NAV Paste
     # -------------------------------------------------------------------------
     elif page == t("menu_nav", "2) Paste NAV email"):
@@ -445,6 +468,45 @@ with SessionLocal() as session:
         nav_df = _load_nav(session)
         # no cash_df; cash is config-driven
 
+        wm = get_published_watermark(session)  # e.g., 2025-12-16 from XLSM backfill
+        st.info(f"Published history watermark: {wm}")
+
+        # Suggest default range: from wm+1 to today
+        import datetime as dt
+        default_from = (wm + dt.timedelta(days=1)) if wm else dt.date.today().replace(day=1)
+        default_to = dt.date.today()
+
+        date_from = st.date_input("From", value=default_from)
+        date_to = st.date_input("To", value=default_to)
+
+        if wm and date_from <= wm:
+            st.warning(f"Start date adjusted to {wm + dt.timedelta(days=1)} because published history exists up to {wm}.")
+            date_from = wm + dt.timedelta(days=1)
+
+        if wm and date_to <= wm:
+            st.error("Selected range is fully within backfilled history. No new days to compute.")
+            st.stop()
+
+        # final_out index is Timestamp; convert to date for compare
+            final_out_to_save = final_out.copy()
+            final_out_to_save["rate_date"] = final_out_to_save.index.date
+
+        if wm:
+            final_out_to_save = final_out_to_save[final_out_to_save["rate_date"] > wm]
+
+        if final_out_to_save.empty:
+            st.info("Nothing new to save (all computed dates are <= watermark).")
+        else:
+            # convert wide->long
+            long = final_out_to_save.drop(columns=["rate_date"]).reset_index(drop=True)
+            long["rate_date"] = final_out_to_save["rate_date"].values
+            long = long.melt(id_vars=["rate_date"], var_name="series_code", value_name="value").dropna()
+
+            n = upsert_published_rates(session, long[["rate_date","series_code","value"]], source="computed")
+            st.success(f"Saved {n:,} rows (computed) after watermark {wm}.")
+
+
+
         colA, colB, colC = st.columns(3)
         with colA:
             tr_yield = st.number_input(
@@ -469,13 +531,53 @@ with SessionLocal() as session:
             date_to = st.date_input(t("calc_to", "To (inclusive)"), value=date.today())
 
         if st.button(t("calc_run", "Run calculation")):
-            out_df, meta, coverage = compute_outputs(
+            published_long = _load_published(session, start_date, end_date)
+            published_w = (
+                published_long.pivot_table(index="rate_date", columns="series_code", values="value", aggfunc="last")
+                if not published_long.empty else
+                pd.DataFrame()
+            )
+
+            # Compute (only possible where NAV+FX coverage exists)
+            out_base, meta, coverage = compute_outputs(
                 fx_df=fx_df,
                 nav_df=nav_df,
-                tr_yearly_yield=float(tr_yield),
+                cash_df=None,  # cash UI removed; calc.py uses constants
+                tr_yearly_yield=tr_yield,
                 require_all_navs=require_all_navs,
                 require_fx_same_day=require_fx_same_day,
             )
+
+            # Anchor to published value on the first computed day (if available)
+            anchor_values = None
+            if not out_base.empty and not published_w.empty:
+                first_day = out_base.index.min().date()
+                if first_day in published_w.index:
+                    anchor_values = {k: float(v) for k, v in published_w.loc[first_day].dropna().to_dict().items()}
+
+            out_calc, meta, coverage = compute_outputs(
+                fx_df=fx_df,
+                nav_df=nav_df,
+                cash_df=None,
+                tr_yearly_yield=tr_yield,
+                require_all_navs=require_all_navs,
+                require_fx_same_day=require_fx_same_day,
+                anchor_values=anchor_values,
+            )
+
+            # Restrict to UI range
+            out_calc = out_calc.loc[(out_calc.index.date >= start_date) & (out_calc.index.date <= end_date)]
+
+            # Merge: published wins on overlap; computed fills gaps/future
+            if not published_w.empty:
+                published_w.index = pd.to_datetime(published_w.index)
+                published_w = published_w.reindex(columns=SERIES_ORDER)
+                final_out = published_w.combine_first(out_calc)  # published overrides
+            else:
+                final_out = out_calc
+
+            final_out = final_out.reindex(columns=SERIES_ORDER)
+
 
             st.subheader(t("calc_diag_title", "Coverage diagnostics"))
             c1, c2, c3 = st.columns(3)
@@ -562,6 +664,7 @@ with SessionLocal() as session:
     # -------------------------------------------------------------------------
     # 5) Audit runs
     # -------------------------------------------------------------------------
+    
     elif page == t("menu_audit", "4) Audit runs"):
         st.subheader(t("audit_page_title", "Audit: saved calculation runs"))
 
@@ -597,6 +700,23 @@ with SessionLocal() as session:
 
             df = pd.DataFrame(out).sort_values("Date") if out else pd.DataFrame()
             st.dataframe(df, use_container_width=True)
+
+    # -------------------------------------------------------------------------
+    # 5) Backfill
+    # -------------------------------------------------------------------------
+        
+    elif page == t("menu_backfill", "5) Backfill (legacy XLSM)"):
+        st.subheader(t("backfill_title", "Backfill published outputs from legacy XLSM"))
+
+    x = st.file_uploader(t("backfill_uploader", "Upload the legacy HU_OLD-FundsRate-INCL-CASH...xlsm"), accept_multiple_files=False)
+    if x:
+        df_long = backfill_legacy.parse_legacy_outputs_xlsm(x.getvalue())
+        st.write(f"Rows: {len(df_long):,}")
+        st.dataframe(df_long.head(50), use_container_width=True)
+
+        if st.button("Import / Upsert into DB"):
+            n = upsert_published_rates(session, df_long, source="xlsm_backfill")
+            st.success(f"Upserted {n:,} rows into published_rates")
 
 
 
