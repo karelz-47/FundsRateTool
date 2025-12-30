@@ -31,12 +31,6 @@
   "nav_saved": "Saved/updated NAV rows.",
   "nav_rows_db": "NAV rows stored in DB",
 
-  "cash_title": "Cash allocation (0..1) per series per date (optional)",
-  "cash_caption": "Matches Excel delta-damping: out_t = out_{t-1} + (base_t - base_{t-1})*(1-cash_pct). Leave at 0 if not used.",
-  "cash_enter_nav_first": "Enter NAVs first.",
-  "cash_save_btn": "Save cash allocation",
-  "cash_saved": "Saved/updated cash cells.",
-
   "calc_title": "Calculate outputs and export",
   "calc_tr_yield": "TR yearly yield",
   "calc_require_all_navs": "Require all 9 NAVs for a date",
@@ -56,7 +50,13 @@
   "export_title": "Export",
   "export_csv": "Download CSV",
   "export_xlsx": "Download XLSX",
+  
   "audit_save_title": "Persist this run (audit)",
   "audit_save_btn": "Save calculation run to DB",
-  "audit_saved": "Saved calc_run"
+  "audit_saved": "Saved calc_run",
+
+  "backfill_title": "Backfill published outputs from legacy XLSM",
+  "backfill_uploader": "Upload the legacy HU_OLD-FundsRate-INCL-CASH...xlsm",
+  "backfill_import_btn": "Backfill Import Buton",
+  "backfill_done": "Backfill Done"
 }
