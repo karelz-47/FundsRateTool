@@ -277,9 +277,8 @@ page = st.sidebar.radio(
     [
         t("menu_fx", "1) Import FX (TB CSV)"),
         t("menu_nav", "2) Paste NAV email"),
-        t("menu_cash", "3) Cash allocation"),
-        t("menu_calc", "4) Calculate & Export"),
-        t("menu_audit", "5) Audit runs"),
+        t("menu_calc", "3) Calculate & Export"),
+        t("menu_audit", "4) Audit runs"),
     ],
 )
 
@@ -456,78 +455,17 @@ with SessionLocal() as session:
     # -------------------------------------------------------------------------
     # 3) Cash allocation
     # -------------------------------------------------------------------------
-    elif page == t("menu_cash", "3) Cash allocation"):
-        st.subheader(t("cash_title", "Cash allocation (0..1) per series per date (optional)"))
-        st.caption(
-            t(
-                "cash_caption",
-                "Matches Excel delta-damping: out_t = out_{t-1} + (base_t - base_{t-1})*(1-cash_pct). Leave at 0 if not used.",
-            )
-        )
-
-        nav_df = _load_nav(session)
-        if nav_df.empty:
-            st.warning(t("cash_enter_nav_first", "Enter NAVs first."))
-        else:
-            cash_df = _load_cash(session)
-            nav_dates = sorted(pd.to_datetime(nav_df["nav_date"]).dt.date.unique().tolist())
-
-            wide = cash_df.pivot_table(index="alloc_date", columns="series_code", values="cash_pct", aggfunc="last")
-            wide = wide.reindex(nav_dates)
-
-            for c in SERIES_ORDER:
-                if c not in wide.columns:
-                    wide[c] = 0.0
-            wide = wide[SERIES_ORDER].fillna(0.0)
-            wide.index.name = "alloc_date"
-
-            edited = st.data_editor(wide.reset_index(), use_container_width=True, num_rows="fixed")
-
-            if st.button(t("cash_save_btn", "Save cash allocation")):
-                saved = 0
-                for _, r in edited.iterrows():
-                    d = r["alloc_date"]
-                    if pd.isna(d):
-                        continue
-                    for code in SERIES_ORDER:
-                        v = r.get(code, 0.0)
-                        if pd.isna(v):
-                            v = 0.0
-                        v = float(v)
-                        if v < 0 or v > 1:
-                            st.error(
-                                t("cash_range_err", "Cash % must be 0..1.")
-                                + f" {t('cash_range_detail', 'Found')} {v} {t('cash_range_for', 'for')} {code} {t('cash_range_on', 'on')} {d}."
-                            )
-                            st.stop()
-
-                        obj = (
-                            session.execute(
-                                select(CashAlloc)
-                                .where(CashAlloc.alloc_date == d)
-                                .where(CashAlloc.series_code == code)
-                            )
-                            .scalar_one_or_none()
-                        )
-
-                        if obj is None:
-                            session.add(CashAlloc(alloc_date=d, series_code=code, cash_pct=v, source="manual"))
-                        else:
-                            obj.cash_pct = v
-                        saved += 1
-
-                session.commit()
-                st.success(f"{t('cash_saved', 'Saved/updated cash cells.')} ({saved})")
-
+    
     # -------------------------------------------------------------------------
     # 4) Calculate & Export
     # -------------------------------------------------------------------------
-    elif page == t("menu_calc", "4) Calculate & Export"):
+    elif page == t("menu_calc", "3) Calculate & Export"):
         st.subheader(t("calc_title", "Calculate outputs and export"))
 
         fx_df = _load_fx(session)
         nav_df = _load_nav(session)
-        cash_df = _load_cash(session)
+        # no cash_df; cash is config-driven
+        "cash_mode": "config_constants",
 
         colA, colB, colC = st.columns(3)
         with colA:
@@ -683,6 +621,7 @@ with SessionLocal() as session:
 
             df = pd.DataFrame(out).sort_values("Date") if out else pd.DataFrame()
             st.dataframe(df, use_container_width=True)
+
 
 
 
