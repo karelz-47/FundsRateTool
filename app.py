@@ -373,11 +373,19 @@ with SessionLocal() as session:
         )
 
         only_isins = set(NAV_CURRENCY.keys())
+        only_isins = set(NAV_CURRENCY.keys())
+        df_known = df[df["isin"].isin(only_isins)].copy()
+        df_unknown = df[~df["isin"].isin(only_isins)].copy()
+
+        if not df_unknown.empty:
+           st.warning(f"Unknown ISINs (not in NAV_CURRENCY mapping): {sorted(df_unknown['isin'].unique())}")
+
+# show df_known and save df_known
         pasted = st.text_area(t("nav_paste_label", "Paste email text here"), height=360)
 
         if st.button(t("nav_parse_btn", "Parse NAVs")):
             try:
-                df, email_dt = parse_baha_paste(pasted, only_isins=only_isins)
+                df, email_dt = parse_baha_paste(pasted, only_isins=none)
                 st.info(f"{t('nav_email_date_detected', 'Detected email date')}: {email_dt.strftime('%d.%m.%Y')}")
                 if df.empty:
                     st.warning(
@@ -662,3 +670,4 @@ with SessionLocal() as session:
 
             df = pd.DataFrame(out).sort_values("Date") if out else pd.DataFrame()
             st.dataframe(df, use_container_width=True)
+
