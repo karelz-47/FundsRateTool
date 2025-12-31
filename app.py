@@ -718,6 +718,204 @@ with SessionLocal() as session:
 
                     n = upsert_published_rates(
                         session,
+elif page_key == "menu_calc":
+        st.subheader(t("calc_title", "Calculate outputs and export"))
+
+        fx_df = _load_fx(session)
+        nav_df = _load_nav(session)
+
+        wm = get_published_watermark(session)
+        if wm:
+            st.info(f"{t('calc_watermark', 'Published history watermark')}: {wm}")
+        else:
+            st.info(t("calc_watermark_none", "No published history watermark found yet."))
+
+        import datetime as dt
+
+        default_from = (wm + dt.timedelta(days=1)) if wm else _current_month_range()[0]
+        default_to = date.today()
+
+        colA, colB, colC = st.columns(3)
+        with colA:
+            tr_yield = st.number_input(
+                t("calc_tr_yield", "TR yearly yield"),
+                value=float(TR_YEARLY_YIELD_DEFAULT),
+                step=0.001,
+                format="%.6f",
+            )
+        with colB:
+            require_all_navs = st.checkbox(
+                t("calc_require_all_navs", "Require all NAVs for a date"),
+                value=True,
+            )
+        with colC:
+            require_fx_same_day = st.checkbox(
+                t("calc_require_fx_same_day", "Require FX same-day (no carry-forward)"),
+                value=False,
+            )
+
+        col1, col2 = st.columns(2)
+        with col1:
+            date_from = st.date_input(t("calc_from", "From"), value=default_from)
+        with col2:
+            date_to = st.date_input(t("calc_to", "To (inclusive)"), value=default_to)
+
+        if wm and date_from <= wm:
+            st.warning(
+                t("calc_from_adjusted", "Start date adjusted because published history exists up to")
+                + f" {wm}."
+            )
+            date_from = wm + dt.timedelta(days=1)
+
+        if wm and date_to <= wm:
+            st.error(
+                t(
+                    "calc_range_within_watermark",
+                    "Selected range is fully within backfilled history. No new days to compute.",
+                )
+            )
+            st.stop()
+
+        if st.button(t("calc_run", "Run calculation")):
+            out_df, meta, coverage = compute_outputs(
+                fx_df=fx_df,
+                nav_df=nav_df,
+                cash_df=None,
+                tr_yearly_yield=tr_yield,
+                require_all_navs=require_all_navs,
+                require_fx_same_day=require_fx_same_day,
+            )
+
+            if coverage.get("nav_dates_missing_fx"):
+                st.warning(t("calc_missing_fx_warn", "Some NAV dates have no FX yet."))
+                st.dataframe(
+                    pd.DataFrame({"nav_date_missing_fx": coverage["nav_dates_missing_fx"]}),
+                    use_container_width=True,
+                )
+
+            if coverage.get("nav_dates_incomplete"):
+                st.warning(
+                    t(
+                        "calc_incomplete_nav_warn",
+                        "Some NAV dates are incomplete (missing one or more fund NAVs).",
+                    )
+                )
+                st.dataframe(
+                    pd.DataFrame({"nav_date_incomplete": coverage["nav_dates_incomplete"]}),
+                    use_container_width=True,
+                )
+
+            if out_df.empty:
+                st.error(
+                    t(
+                        "calc_no_valid",
+                        "No valid output dates yet. Import the missing FX or NAVs to unlock calculation.",
+                    )
+                )
+                st.session_state.pop("out_df", None)
+                st.session_state.pop("out_meta", None)
+                st.session_state.pop("out_coverage", None)
+                st.stop()
+
+            out_f = out_df.loc[
+                (out_df.index.date >= date_from) & (out_df.index.date <= date_to)
+            ].copy()
+
+            st.session_state["out_df"] = out_f
+            st.session_state["out_meta"] = meta
+            st.session_state["out_coverage"] = coverage
+
+            st.success(t("calc_complete", "Calculation complete."))
+            st.dataframe(
+                out_f.reset_index().rename(columns={"index": t("date", "Date")}),
+                use_container_width=True,
+            )
+
+        if "out_df" in st.session_state:
+            out_f = st.session_state["out_df"]
+            meta = st.session_state.get("out_meta", {})
+            coverage = st.session_state.get("out_coverage", {})
+
+            st.subheader(t("export_title", "Export"))
+            st.download_button(
+                t("export_csv", "Download CSV"),
+                data=to_csv_bytes(out_f),
+                file_name="kurzy_export.csv",
+                mime="text/csv",
+            )
+            st.download_button(
+                t("export_xlsx", "Download XLSX"),
+                data=to_xlsx_bytes(out_f),
+                file_name="kurzy_export.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
+
+            st.subheader(t("audit_save_title", "Persist this run (audit)"))
+            if st.button(t("audit_save_btn", "Save calculation run to DB")):
+                payload = {
+                    "meta": meta,
+                    "filter_from": str(date_from),
+                    "filter_to": str(date_to),
+                    "fx_rows": int(len(fx_df)),
+                    "nav_rows": int(len(nav_df)),
+                    "valid_dates": coverage.get("valid_dates", []),
+                }
+                h = compute_input_hash(payload)
+
+                run = CalcRun(params_json=json.dumps(payload, sort_keys=True), input_hash=h)
+                session.add(run)
+                session.flush()
+
+                for idx, row in out_f.iterrows():
+                    session.add(
+                        CalcDaily(
+                            run_id=run.id,
+                            calc_date=idx.date(),
+                            output_json=json.dumps(
+                                {k: float(row[k]) for k in SERIES_ORDER if k in out_f.columns},
+                                sort_keys=True,
+                            ),
+                        )
+                    )
+
+                session.commit()
+                st.success(
+                    f"{t('audit_saved', 'Saved calc_run')} id={run.id} ({len(out_f)} {t('rows', 'rows')})."
+                )
+
+            st.subheader(t("calc_publish_title", "Append computed days to published history"))
+            if st.button(
+                t(
+                    "calc_publish_btn",
+                    "Save computed outputs after watermark to published history",
+                )
+            ):
+                df_to_save = out_f.copy()
+                df_to_save["rate_date"] = pd.to_datetime(df_to_save.index).date
+                if wm:
+                    df_to_save = df_to_save[df_to_save["rate_date"] > wm]
+
+                if df_to_save.empty:
+                    st.info(
+                        t(
+                            "calc_publish_none",
+                            "Nothing new to save (all computed dates are <= watermark).",
+                        )
+                    )
+                else:
+                    long = df_to_save.drop(columns=["rate_date"]).copy()
+                    long["rate_date"] = df_to_save["rate_date"].values
+                    long = (
+                        long.melt(
+                            id_vars=["rate_date"],
+                            var_name="series_code",
+                            value_name="value",
+                        )
+                        .dropna()
+                    )
+
+                    n = upsert_published_rates(
+                        session,
                         long[["rate_date", "series_code", "value"]],
                         source="computed",
                     )
@@ -997,6 +1195,7 @@ with SessionLocal() as session:
                 st.success(
                     f"{t('backfill_upserted', 'Upserted rows into published_rates')}: {n:,}"
                 )
+
 
 
 
