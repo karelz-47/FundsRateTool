@@ -669,7 +669,64 @@ with SessionLocal() as session:
                 session.flush()
 
                 for idx, row in out_f.iterrows():
-# -------------------------------------------------------------------------
+                    session.add(
+                        CalcDaily(
+                            run_id=run.id,
+                            calc_date=idx.date(),
+                            output_json=json.dumps(
+                                {k: float(row[k]) for k in SERIES_ORDER if k in out_f.columns},
+                                sort_keys=True,
+                            ),
+                        )
+                    )
+
+                session.commit()
+                st.success(
+                    f"{t('audit_saved', 'Saved calc_run')} id={run.id} ({len(out_f)} {t('rows', 'rows')})."
+                )
+
+            st.subheader(t("calc_publish_title", "Append computed days to published history"))
+            if st.button(
+                t(
+                    "calc_publish_btn",
+                    "Save computed outputs after watermark to published history",
+                )
+            ):
+                df_to_save = out_f.copy()
+                df_to_save["rate_date"] = pd.to_datetime(df_to_save.index).date
+                if wm:
+                    df_to_save = df_to_save[df_to_save["rate_date"] > wm]
+
+                if df_to_save.empty:
+                    st.info(
+                        t(
+                            "calc_publish_none",
+                            "Nothing new to save (all computed dates are <= watermark).",
+                        )
+                    )
+                else:
+                    long = df_to_save.drop(columns=["rate_date"]).copy()
+                    long["rate_date"] = df_to_save["rate_date"].values
+                    long = (
+                        long.melt(
+                            id_vars=["rate_date"],
+                            var_name="series_code",
+                            value_name="value",
+                        )
+                        .dropna()
+                    )
+
+                    n = upsert_published_rates(
+                        session,
+                        long[["rate_date", "series_code", "value"]],
+                        source="computed",
+                    )
+                    session.commit()
+                    st.success(
+                        t("calc_publish_saved", "Saved computed rows to published history:")
+                        + f" {n:,}"
+                    )
+    # -------------------------------------------------------------------------
     # 4) Calculate & Export
     # -------------------------------------------------------------------------
     elif page_key == "menu_calc":
@@ -878,7 +935,7 @@ with SessionLocal() as session:
                         t("calc_publish_saved", "Saved computed rows to published history:")
                         + f" {n:,}"
                     )
-    # -------------------------------------------------------------------------
+
     # -------------------------------------------------------------------------
     # 5) Audit runs
     # -------------------------------------------------------------------------
@@ -940,6 +997,7 @@ with SessionLocal() as session:
                 st.success(
                     f"{t('backfill_upserted', 'Upserted rows into published_rates')}: {n:,}"
                 )
+
 
 
 
