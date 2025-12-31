@@ -290,23 +290,18 @@ if lang_choice != st.session_state["lang"]:
 render_header_with_logo(t("app_title", "Fund Rates Tool"))
 st.caption(t("app_subtitle", "FX + NAV ingestion, audited calculation, XLS/CSV export"))
 
-page = st.sidebar.radio(
-    t("menu"),
-    [
-        t("menu_fx"),
-        t("menu_nav"),
-        t("menu_calc"),
-        t("menu_audit"),
-        t("menu_backfill")
-    ]
+page_key = st.sidebar.radio(
+    t("menu", "Menu"),
+    ["menu_fx", "menu_nav", "menu_calc", "menu_audit", "menu_backfill"],
+    format_func=lambda k: t(k, k),
 )
-
+    
 with SessionLocal() as session:
 
     # -------------------------------------------------------------------------
     # 1) FX Import
     # -------------------------------------------------------------------------
-    if page == t("menu_fx", "1) Import FX (TB CSV)"):
+    if page_key == "menu_fx":
         st.subheader(t("fx_title", "Import Tatra banka exchange rates from CSV (snapshot)"))
         st.caption(
             t(
@@ -381,7 +376,7 @@ with SessionLocal() as session:
     # -------------------------------------------------------------------------
     # 2) NAV Paste
     # -------------------------------------------------------------------------
-    elif page == t("menu_nav", "2) Paste NAV email"):
+    elif page_key == "menu_nav":
         st.subheader(t("nav_title", "Paste NAV email (incl. header)"))
         st.caption(
             t(
@@ -395,9 +390,10 @@ with SessionLocal() as session:
         pasted = st.text_area(t("nav_paste_label", "Paste email text here"), height=360)
 
         # Parse
+        # Parse
         if st.button(t("nav_parse_btn", "Parse NAVs")):
             try:
-                df, email_dt = parse_baha_paste(pasted, only_isins=only_isins)  # FIX: was `none`
+                df, email_dt = parse_baha_paste(pasted, only_isins=only_isins)
                 st.info(
                     f"{t('nav_email_date_detected', 'Detected email date')}: {email_dt.strftime('%d.%m.%Y')}"
                 )
@@ -410,25 +406,29 @@ with SessionLocal() as session:
                         )
                     )
                     st.session_state.pop("parsed_nav_df", None)
+                    st.session_state.pop("nav_email_dt", None)
                 else:
                     st.session_state["parsed_nav_df"] = df
+                    st.session_state["nav_email_dt"] = email_dt
 
             except Exception as e:
                 st.error(str(e))
                 st.session_state.pop("parsed_nav_df", None)
-
-        raw_hash = hashlib.sha256((pasted or "").encode("utf-8")).hexdigest()
+                st.session_state.pop("nav_email_dt", None)
 
         # Display / save (only when parsed df exists)
         if "parsed_nav_df" in st.session_state:
             df = st.session_state["parsed_nav_df"]
+            email_dt = st.session_state.get("nav_email_dt", None)
+            raw_hash = hashlib.sha256((pasted or "").encode("utf-8")).hexdigest()
 
             df_known = df[df["isin"].isin(only_isins)].copy()
             df_unknown = df[~df["isin"].isin(only_isins)].copy()
 
             if not df_unknown.empty:
                 st.warning(
-                    f"Unknown ISINs (not in NAV_CURRENCY mapping): {sorted(df_unknown['isin'].unique())}"
+                    t("nav_unknown_isins", "Unknown ISINs (not in NAV_CURRENCY mapping):")
+                    + f" {sorted(df_unknown['isin'].unique())}"
                 )
 
             st.dataframe(df_known, use_container_width=True)
@@ -446,17 +446,13 @@ with SessionLocal() as session:
                     )
 
                     if obj is None:
-                        email_dt = st.session_state.get("nav_email_dt", None)
-
-                        raw_hash = hashlib.sha256((pasted or "").encode("utf-8")).hexdigest()
-
                         obj = FundNav(
                             nav_date=r["nav_date"],
                             isin=r["isin"],
                             nav=float(r["nav"]),
                             currency=str(r["currency"]),
                             fund_name=r.get("fund_name", None),
-                            source_email_date=email_dt,   # DATE from email header (Sent:)
+                            source_email_date=email_dt,
                             raw_hash=raw_hash,
                         )
                         session.add(obj)
@@ -465,13 +461,12 @@ with SessionLocal() as session:
                         obj.currency = str(r["currency"])
                         obj.fund_name = r.get("fund_name", obj.fund_name)
                         obj.source_email_date = email_dt
-                        obj.raw_hash = raw_hashobj.nav = float(r["nav"])
-                        
+                        obj.raw_hash = raw_hash
+
                     saved += 1
 
                 session.commit()
                 st.success(f"{t('nav_saved', 'Saved/updated NAV rows.')} ({saved})")
-
         st.divider()
         st.markdown(f"### {t('nav_rows_db', 'NAV rows stored in DB')}")
         nav_df = _load_nav(session)
@@ -674,30 +669,228 @@ with SessionLocal() as session:
                 session.flush()
 
                 for idx, row in out_f.iterrows():
+# -------------------------------------------------------------------------
+    # 4) Calculate & Export
+    # -------------------------------------------------------------------------
+    elif page_key == "menu_calc":
+        st.subheader(t("calc_title", "Calculate outputs and export"))
+
+        fx_df = _load_fx(session)
+        nav_df = _load_nav(session)
+
+        wm = get_published_watermark(session)
+        if wm:
+            st.info(f"{t('calc_watermark', 'Published history watermark')}: {wm}")
+        else:
+            st.info(t("calc_watermark_none", "No published history watermark found yet."))
+
+        import datetime as dt
+
+        default_from = (wm + dt.timedelta(days=1)) if wm else _current_month_range()[0]
+        default_to = date.today()
+
+        colA, colB, colC = st.columns(3)
+        with colA:
+            tr_yield = st.number_input(
+                t("calc_tr_yield", "TR yearly yield"),
+                value=float(TR_YEARLY_YIELD_DEFAULT),
+                step=0.001,
+                format="%.6f",
+            )
+        with colB:
+            require_all_navs = st.checkbox(
+                t("calc_require_all_navs", "Require all NAVs for a date"),
+                value=True,
+            )
+        with colC:
+            require_fx_same_day = st.checkbox(
+                t("calc_require_fx_same_day", "Require FX same-day (no carry-forward)"),
+                value=False,
+            )
+
+        col1, col2 = st.columns(2)
+        with col1:
+            date_from = st.date_input(t("calc_from", "From"), value=default_from)
+        with col2:
+            date_to = st.date_input(t("calc_to", "To (inclusive)"), value=default_to)
+
+        if wm and date_from <= wm:
+            st.warning(
+                t("calc_from_adjusted", "Start date adjusted because published history exists up to")
+                + f" {wm}."
+            )
+            date_from = wm + dt.timedelta(days=1)
+
+        if wm and date_to <= wm:
+            st.error(
+                t(
+                    "calc_range_within_watermark",
+                    "Selected range is fully within backfilled history. No new days to compute.",
+                )
+            )
+            st.stop()
+
+        if st.button(t("calc_run", "Run calculation")):
+            out_df, meta, coverage = compute_outputs(
+                fx_df=fx_df,
+                nav_df=nav_df,
+                cash_df=None,
+                tr_yearly_yield=tr_yield,
+                require_all_navs=require_all_navs,
+                require_fx_same_day=require_fx_same_day,
+            )
+
+            if coverage.get("nav_dates_missing_fx"):
+                st.warning(t("calc_missing_fx_warn", "Some NAV dates have no FX yet."))
+                st.dataframe(
+                    pd.DataFrame({"nav_date_missing_fx": coverage["nav_dates_missing_fx"]}),
+                    use_container_width=True,
+                )
+
+            if coverage.get("nav_dates_incomplete"):
+                st.warning(
+                    t(
+                        "calc_incomplete_nav_warn",
+                        "Some NAV dates are incomplete (missing one or more fund NAVs).",
+                    )
+                )
+                st.dataframe(
+                    pd.DataFrame({"nav_date_incomplete": coverage["nav_dates_incomplete"]}),
+                    use_container_width=True,
+                )
+
+            if out_df.empty:
+                st.error(
+                    t(
+                        "calc_no_valid",
+                        "No valid output dates yet. Import the missing FX or NAVs to unlock calculation.",
+                    )
+                )
+                st.session_state.pop("out_df", None)
+                st.session_state.pop("out_meta", None)
+                st.session_state.pop("out_coverage", None)
+                st.stop()
+
+            out_f = out_df.loc[
+                (out_df.index.date >= date_from) & (out_df.index.date <= date_to)
+            ].copy()
+
+            st.session_state["out_df"] = out_f
+            st.session_state["out_meta"] = meta
+            st.session_state["out_coverage"] = coverage
+
+            st.success(t("calc_complete", "Calculation complete."))
+            st.dataframe(
+                out_f.reset_index().rename(columns={"index": t("date", "Date")}),
+                use_container_width=True,
+            )
+
+        if "out_df" in st.session_state:
+            out_f = st.session_state["out_df"]
+            meta = st.session_state.get("out_meta", {})
+            coverage = st.session_state.get("out_coverage", {})
+
+            st.subheader(t("export_title", "Export"))
+            st.download_button(
+                t("export_csv", "Download CSV"),
+                data=to_csv_bytes(out_f),
+                file_name="kurzy_export.csv",
+                mime="text/csv",
+            )
+            st.download_button(
+                t("export_xlsx", "Download XLSX"),
+                data=to_xlsx_bytes(out_f),
+                file_name="kurzy_export.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
+
+            st.subheader(t("audit_save_title", "Persist this run (audit)"))
+            if st.button(t("audit_save_btn", "Save calculation run to DB")):
+                payload = {
+                    "meta": meta,
+                    "filter_from": str(date_from),
+                    "filter_to": str(date_to),
+                    "fx_rows": int(len(fx_df)),
+                    "nav_rows": int(len(nav_df)),
+                    "valid_dates": coverage.get("valid_dates", []),
+                }
+                h = compute_input_hash(payload)
+
+                run = CalcRun(params_json=json.dumps(payload, sort_keys=True), input_hash=h)
+                session.add(run)
+                session.flush()
+
+                for idx, row in out_f.iterrows():
                     session.add(
                         CalcDaily(
                             run_id=run.id,
                             calc_date=idx.date(),
-                            output_json=json.dumps({k: float(row[k]) for k in SERIES_ORDER}, sort_keys=True),
+                            output_json=json.dumps(
+                                {k: float(row[k]) for k in SERIES_ORDER if k in out_f.columns},
+                                sort_keys=True,
+                            ),
                         )
                     )
 
                 session.commit()
-                st.success(f"{t('audit_saved', 'Saved calc_run')} id={run.id} ({len(out_f)} {t('rows', 'rows')}).")
+                st.success(
+                    f"{t('audit_saved', 'Saved calc_run')} id={run.id} ({len(out_f)} {t('rows', 'rows')})."
+                )
 
+            st.subheader(t("calc_publish_title", "Append computed days to published history"))
+            if st.button(
+                t(
+                    "calc_publish_btn",
+                    "Save computed outputs after watermark to published history",
+                )
+            ):
+                df_to_save = out_f.copy()
+                df_to_save["rate_date"] = pd.to_datetime(df_to_save.index).date
+                if wm:
+                    df_to_save = df_to_save[df_to_save["rate_date"] > wm]
+
+                if df_to_save.empty:
+                    st.info(
+                        t(
+                            "calc_publish_none",
+                            "Nothing new to save (all computed dates are <= watermark).",
+                        )
+                    )
+                else:
+                    long = df_to_save.drop(columns=["rate_date"]).copy()
+                    long["rate_date"] = df_to_save["rate_date"].values
+                    long = (
+                        long.melt(
+                            id_vars=["rate_date"],
+                            var_name="series_code",
+                            value_name="value",
+                        )
+                        .dropna()
+                    )
+
+                    n = upsert_published_rates(
+                        session,
+                        long[["rate_date", "series_code", "value"]],
+                        source="computed",
+                    )
+                    session.commit()
+                    st.success(
+                        t("calc_publish_saved", "Saved computed rows to published history:")
+                        + f" {n:,}"
+                    )
+    # -------------------------------------------------------------------------
     # -------------------------------------------------------------------------
     # 5) Audit runs
     # -------------------------------------------------------------------------
-    
-    elif page == t("menu_audit", "4) Audit runs"):
+    elif page_key == "menu_audit":
         st.subheader(t("audit_page_title", "Audit: saved calculation runs"))
 
-        runs = session.execute(select(CalcRun).order_by(CalcRun.run_ts.desc())).scalars().all()
+        runs = session.execute(select(CalcRun).order_by(CalcRun.created_at.desc())).scalars().all()
         if not runs:
             st.info(t("audit_no_runs", "No saved calc runs yet."))
         else:
             run_opts = {
-                f"{t('audit_run', 'Run')} {r.id} @ {r.run_ts.isoformat()} ({t('audit_hash', 'hash')} {r.input_hash[:10]}…)": r.id
+                f"{t('audit_run', 'Run')} {r.id} @ {r.created_at.isoformat()} ({t('audit_hash', 'hash')} {r.input_hash[:10]}…)": r.id
                 for r in runs
             }
             choice = st.selectbox(t("audit_select_run", "Select run"), list(run_opts.keys()))
@@ -729,18 +922,25 @@ with SessionLocal() as session:
     # 5) Backfill
     # -------------------------------------------------------------------------
         
-    elif page == t("menu_backfill", "5) Backfill (legacy XLSM)"):
+    elif page_key == "menu_backfill":
         st.subheader(t("backfill_title", "Backfill published outputs from legacy XLSM"))
 
-    x = st.file_uploader(t("backfill_uploader", "Upload the legacy HU_OLD-FundsRate-INCL-CASH...xlsm"), accept_multiple_files=False)
-    if x:
-        df_long = backfill_legacy.parse_legacy_outputs_xlsm(x.getvalue())
-        st.write(f"Rows: {len(df_long):,}")
-        st.dataframe(df_long.head(50), use_container_width=True)
+        x = st.file_uploader(
+            t("backfill_uploader", "Upload the legacy XLSM backfill file"),
+            accept_multiple_files=False,
+        )
+        if x:
+            df_long = backfill_legacy.parse_legacy_outputs_xlsm(x.getvalue())
+            st.write(f"{t('rows', 'Rows')}: {len(df_long):,}")
+            st.dataframe(df_long.head(50), use_container_width=True)
 
-        if st.button("Import / Upsert into DB"):
-            n = upsert_published_rates(session, df_long, source="xlsm_backfill")
-            st.success(f"Upserted {n:,} rows into published_rates")
+            if st.button(t("backfill_import_btn", "Import / Upsert into DB")):
+                n = upsert_published_rates(session, df_long, source="xlsm_backfill")
+                session.commit()
+                st.success(
+                    f"{t('backfill_upserted', 'Upserted rows into published_rates')}: {n:,}"
+                )
+
 
 
 
