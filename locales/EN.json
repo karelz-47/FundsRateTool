@@ -56,7 +56,25 @@
   "audit_saved": "Saved calc_run",
 
   "backfill_title": "Backfill published outputs from legacy XLSM",
-  "backfill_uploader": "Upload the legacy HU_OLD-FundsRate-INCL-CASH...xlsm",
-  "backfill_import_btn": "Backfill Import Buton",
-  "backfill_done": "Backfill Done"
+  "nav_unknown_isins": "Unknown ISINs (not in NAV_CURRENCY mapping):",
+
+  "calc_watermark": "Published history watermark",
+  "calc_watermark_none": "No published history watermark found yet.",
+  "calc_from_adjusted": "Start date adjusted because published history exists up to",
+  "calc_range_within_watermark": "Selected range is fully within backfilled history. No new days to compute.",
+
+  "audit_page_title": "Audit: saved calculation runs",
+  "audit_no_runs": "No saved calc runs yet.",
+  "audit_run": "Run",
+  "audit_hash": "hash",
+  "audit_select_run": "Select run",
+
+  "calc_publish_title": "Append computed days to published history",
+  "calc_publish_btn": "Save computed outputs after watermark to published history",
+  "calc_publish_none": "Nothing new to save (all computed dates are <= watermark).",
+  "calc_publish_saved": "Saved computed rows to published history:",
+
+  "backfill_uploader": "Upload the legacy XLSM backfill file",
+  "backfill_import_btn": "Import / Upsert into DB",
+  "backfill_upserted": "Upserted rows into published_rates"
 }
