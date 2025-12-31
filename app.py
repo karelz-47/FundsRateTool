@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import re
 from datetime import date
@@ -217,7 +218,8 @@ def _load_fx(session) -> pd.DataFrame:
 def _load_nav(session) -> pd.DataFrame:
     rows = session.execute(select(FundNav)).scalars().all()
     if not rows:
-        return pd.DataFrame(columns=["nav_date", "isin", "nav", "currency", "fund_name"])
+        return pd.DataFrame(columns=["nav_date", "isin", "nav", "currency", "fund_name", "source_email_date", "raw_hash", "created_at"])
+
     return (
         pd.DataFrame(
             [
@@ -227,7 +229,8 @@ def _load_nav(session) -> pd.DataFrame:
                     "nav": r.nav,
                     "currency": r.currency,
                     "fund_name": r.fund_name,
-                    "source": r.source,
+                    "source_email_date": getattr(r, "source_email_date", None),
+                    "raw_hash": getattr(r, "raw_hash", None),
                     "created_at": r.created_at,
                 }
                 for r in rows
@@ -414,6 +417,8 @@ with SessionLocal() as session:
                 st.error(str(e))
                 st.session_state.pop("parsed_nav_df", None)
 
+        raw_hash = hashlib.sha256((pasted or "").encode("utf-8")).hexdigest()
+
         # Display / save (only when parsed df exists)
         if "parsed_nav_df" in st.session_state:
             df = st.session_state["parsed_nav_df"]
@@ -441,22 +446,27 @@ with SessionLocal() as session:
                     )
 
                     if obj is None:
+                        email_dt = st.session_state.get("nav_email_dt", None)
+
+                        raw_hash = hashlib.sha256((pasted or "").encode("utf-8")).hexdigest()
+
                         obj = FundNav(
                             nav_date=r["nav_date"],
                             isin=r["isin"],
                             nav=float(r["nav"]),
                             currency=str(r["currency"]),
                             fund_name=r.get("fund_name", None),
-                            raw_excerpt=r.get("raw_excerpt", None),
-                            source="paste",
+                            source_email_date=email_dt,   # DATE from email header (Sent:)
+                            raw_hash=raw_hash,
                         )
                         session.add(obj)
                     else:
                         obj.nav = float(r["nav"])
                         obj.currency = str(r["currency"])
                         obj.fund_name = r.get("fund_name", obj.fund_name)
-                        obj.raw_excerpt = r.get("raw_excerpt", obj.raw_excerpt)
-
+                        obj.source_email_date = email_dt
+                        obj.raw_hash = raw_hashobj.nav = float(r["nav"])
+                        
                     saved += 1
 
                 session.commit()
@@ -731,6 +741,7 @@ with SessionLocal() as session:
         if st.button("Import / Upsert into DB"):
             n = upsert_published_rates(session, df_long, source="xlsm_backfill")
             st.success(f"Upserted {n:,} rows into published_rates")
+
 
 
 
