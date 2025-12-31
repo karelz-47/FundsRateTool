@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import date
-from typing import Dict, Tuple
+from typing import Dict, Tuple, Optional, List
 
 import numpy as np
 import pandas as pd
@@ -15,52 +15,21 @@ from config import (
     TR_EUR_BASE_FX_FALLBACK,
     ROUND_DECIMALS,
     SERIES_ORDER,
+    GUARANTEED_SERIES,
+    DEFAULT_CASH_PCT,
+    CASH_PCT_BY_SERIES,
 )
-
-# =============================================================================
-# CASH ALLOCATION POLICY (CONFIG-IN-CODE)
-# -----------------------------------------------------------------------------
-# - Guaranteed funds: cash_pct = 0.00
-# - Others: set by mapping below; default is 0.00 if not listed.
-#
-# EDIT HERE if cash policy changes.
-# Keys MUST match the output series codes (columns) used in the calculation:
-#   - "TR_HUF", "TR_EUR"
-#   - ISINs (e.g., "LU0329678410")
-#   - Portfolio columns ("CONSERVATIVE", "BALANCED", "DYNAMIC") if you want them damped
-# =============================================================================
-
-GUARANTEED_SERIES = {
-    "TR_HUF",
-    "TR_EUR",
-}
-
-DEFAULT_CASH_PCT = 0.00
-
-CASH_PCT_BY_SERIES: Dict[str, float] = {
-    # Example: apply 5% cash damping to selected series (edit as needed)
-    # (These keys are ISINs in this codebase, because output includes ISIN columns.)
-    "LU0329678410": 0.05,  # Fidelity Funds - Emerging Asia Fund A-ACC-Euro
-    "LU0605515377": 0.05,  # Fidelity Funds - Global Dividend Fund A-ACC-Euro (hedged)
-    "LU0740858492": 0.05,  # JPMorgan Investment Funds - Global Income Fund D (acc) - EUR
-    "LU0862449690": 0.05,  # JPMorgan Funds - Emerging Markets Dividend Fund A (acc) - EUR
-    "LU1088281024": 0.05,  # Fidelity Funds - Global Multi Asset Income Fund A-ACC-HUF (hedged)
-
-    # If you want damping on portfolios too, add:
-    # "CONSERVATIVE": 0.05,
-    # "BALANCED": 0.05,
-    # "DYNAMIC": 0.05,
-}
-
-def cash_pct_for_series(series_code: str) -> float:
-    """Return constant cash allocation percent for a given output series."""
-    if series_code in GUARANTEED_SERIES:
-        return 0.0
-    return float(CASH_PCT_BY_SERIES.get(series_code, DEFAULT_CASH_PCT))
 
 
 def daily_yield_from_yearly(yearly: float) -> float:
     return (1.0 + yearly) ** (1.0 / 365.0) - 1.0
+
+
+def cash_pct_for_series(series_code: str) -> float:
+    # Guaranteed funds => 0% cash allocation per your policy
+    if series_code in GUARANTEED_SERIES:
+        return 0.0
+    return float(CASH_PCT_BY_SERIES.get(series_code, DEFAULT_CASH_PCT))
 
 
 def compute_outputs(
@@ -69,64 +38,34 @@ def compute_outputs(
     tr_yearly_yield: float = TR_YEARLY_YIELD_DEFAULT,
     require_all_navs: bool = True,
     require_fx_same_day: bool = False,
+    published_df_long: Optional[pd.DataFrame] = None,
 ) -> Tuple[pd.DataFrame, Dict[str, object], Dict[str, object]]:
     """
     Outputs are only for valid dates where:
       - NAV exists for the date (and is complete if require_all_navs)
       - FX exists for the date (same-day if require_fx_same_day else as-of last FX <= NAV date)
 
-    Returns:
-      out_df: Date-indexed DataFrame with columns in SERIES_ORDER (only valid dates)
-      meta: parameters used
-      coverage: diagnostics lists
+    STRICT ANCHORING:
+      If published_df_long is provided (and non-empty), outputs are "anchor-scaled" so that
+      the computed value on the latest anchor date equals the published value on that date.
+      Anchor date must be:
+        - a date that exists in computed valid_dates
+        - AND a date that exists in published history
+        - AND on which ALL output series have a published value
+      If no such date exists: return EMPTY output (strict behavior).
     """
 
-    # Allow independent import (no hard failure)
-    if nav_df is None or nav_df.empty:
-        coverage = {
-            "valid_dates": [],
-            "nav_dates_missing_fx": [],
-            "nav_dates_incomplete": [],
-            "nav_dates_in_db": [],
-            "fx_dates_in_db": sorted(pd.to_datetime(fx_df["rate_date"]).dt.date.unique().tolist())
-            if fx_df is not None and not fx_df.empty
-            else [],
-            "require_all_navs": require_all_navs,
-            "require_fx_same_day": require_fx_same_day,
-        }
-        return pd.DataFrame(columns=SERIES_ORDER), {"tr_yearly_yield": tr_yearly_yield}, coverage
-
-    if fx_df is None or fx_df.empty:
-        nav_dates = sorted(pd.to_datetime(nav_df["nav_date"]).dt.date.unique().tolist())
-        coverage = {
-            "valid_dates": [],
-            "nav_dates_missing_fx": nav_dates,
-            "nav_dates_incomplete": [],
-            "nav_dates_in_db": nav_dates,
-            "fx_dates_in_db": [],
-            "require_all_navs": require_all_navs,
-            "require_fx_same_day": require_fx_same_day,
-        }
-        return pd.DataFrame(columns=SERIES_ORDER), {"tr_yearly_yield": tr_yearly_yield}, coverage
-
     fx = fx_df.copy()
-    fx["rate_date"] = pd.to_datetime(fx["rate_date"]).dt.normalize()
-    fx = fx.sort_values("rate_date")
-
     nav = nav_df.copy()
+
+    # Normalize date columns
+    fx["rate_date"] = pd.to_datetime(fx["rate_date"]).dt.normalize()
     nav["nav_date"] = pd.to_datetime(nav["nav_date"]).dt.normalize()
-    nav = nav.sort_values(["nav_date", "isin"])
 
-    required_isins = list(NAV_CURRENCY.keys())
-
-    # NAV wide table
+    # Wide NAV table
     nav_w = nav.pivot_table(index="nav_date", columns="isin", values="nav", aggfunc="last").sort_index()
-    for isin in required_isins:
-        if isin not in nav_w.columns:
-            nav_w[isin] = np.nan
-    nav_w = nav_w[required_isins]
 
-    # NAV completeness by date
+    # Diagnostics: NAV completeness by date
     if require_all_navs:
         nav_complete_mask = ~nav_w.isna().any(axis=1)
     else:
@@ -134,15 +73,20 @@ def compute_outputs(
 
     nav_dates_incomplete = nav_w.index[~nav_complete_mask].date.tolist()
 
-    # FX as-of map for NAV dates
-    dates = pd.DataFrame({"date": nav_w.index}).sort_values("date")
+    # FX as-of join (Excel parity): last FX <= NAV date
+    fx_sorted = fx.sort_values("rate_date").copy()
+    nav_dates = pd.DataFrame({"date": nav_w.index})
+    fx_asof = pd.merge_asof(
+        nav_dates.sort_values("date"),
+        fx_sorted.sort_values("rate_date"),
+        left_on="date",
+        right_on="rate_date",
+        direction="backward",
+    )
 
-    fx_for_asof = fx.rename(columns={"rate_date": "date"}).sort_values("date")
-    fx_asof = pd.merge_asof(dates, fx_for_asof, on="date", direction="backward")
+    fx_ok = ~fx_asof["rate_date"].isna()
 
-    fx_required_cols = ["huf_buy", "huf_mid", "usd_sell"]
-    fx_ok = ~fx_asof[fx_required_cols].isna().any(axis=1)
-
+    # If strict "same day FX" required, enforce that too
     if require_fx_same_day:
         fx_days = set(fx["rate_date"].dt.date.tolist())
         fx_ok = fx_ok & fx_asof["date"].dt.date.isin(fx_days)
@@ -190,11 +134,16 @@ def compute_outputs(
     if TR_EUR_BASE_DATE in set(valid_dates.date.tolist()):
         base_fx = float(fx_asof_valid.loc[pd.Timestamp(TR_EUR_BASE_DATE), "huf_per_eur"])
 
-    tr_eur = pd.Series(tr_eur_raw * fx_asof_valid["huf_per_eur"].to_numpy() / base_fx, index=valid_dates)
+    tr_eur = pd.Series(tr_eur_raw, index=valid_dates) * (fx_asof_valid["huf_per_eur"] / float(base_fx))
 
-    # Convert NAV to HUF
-    nav_huf = pd.DataFrame(index=valid_dates, columns=required_isins, dtype=float)
-    for isin, ccy in NAV_CURRENCY.items():
+    # Convert fund NAVs to HUF
+    nav_huf = pd.DataFrame(index=valid_dates, columns=nav_w_valid.columns, dtype=float)
+    for isin in nav_w_valid.columns:
+        ccy = NAV_CURRENCY.get(isin)
+        if ccy is None:
+            raise ValueError(f"ISIN {isin} not found in NAV_CURRENCY mapping")
+        ccy = str(ccy).upper()
+
         if ccy == "HUF":
             nav_huf[isin] = nav_w_valid[isin]
         elif ccy == "EUR":
@@ -204,42 +153,27 @@ def compute_outputs(
         else:
             raise ValueError(f"Unsupported currency for {isin}: {ccy}")
 
-    # Normalize each fund to 1.0 at the first valid date (with complete NAV & FX)
+    # Normalize each fund to 1.0 at the first valid date (relative series)
     base_date = valid_dates.min()
     base_vals = nav_huf.loc[base_date]
     idx_funds = nav_huf.divide(base_vals)
 
-    # Portfolios (return-chaining across valid dates)
-    def compute_portfolio(weights: Dict[str, float]) -> pd.Series:
-        out = pd.Series(index=valid_dates, dtype=float)
-        out.iloc[0] = 1.0
-        for i in range(1, len(valid_dates)):
-            t = valid_dates[i]
-            t0 = valid_dates[i - 1]
-            ratios = []
-            wts = []
-            for isin, w in weights.items():
-                if w == 0:
-                    continue
-                a = float(idx_funds.at[t0, isin])
-                b = float(idx_funds.at[t, isin])
-                ratios.append(b / a)
-                wts.append(w)
-            out.iloc[i] = out.iloc[i - 1] * float(np.dot(wts, ratios))
-        return out
+    # Portfolios (weighted sums of fund indices)
+    base = pd.DataFrame(index=valid_dates, dtype=float)
 
-    port_cons = compute_portfolio(PORTFOLIO_WEIGHTS["CONSERVATIVE"])
-    port_bal = compute_portfolio(PORTFOLIO_WEIGHTS["BALANCED"])
-    port_dyn = compute_portfolio(PORTFOLIO_WEIGHTS["DYNAMIC"])
+    for isin in idx_funds.columns:
+        base[isin] = idx_funds[isin]
 
-    base = pd.DataFrame(index=valid_dates)
+    # Add TR series
     base["TR_HUF"] = tr_huf
     base["TR_EUR"] = tr_eur
-    for isin in required_isins:
-        base[isin] = idx_funds[isin]
-    base["CONSERVATIVE"] = port_cons
-    base["BALANCED"] = port_bal
-    base["DYNAMIC"] = port_dyn
+
+    # Portfolio composites (expected keys in PORTFOLIO_WEIGHTS)
+    for port_name, weights in PORTFOLIO_WEIGHTS.items():
+        s = pd.Series(0.0, index=valid_dates)
+        for isin, w in weights.items():
+            s = s + float(w) * idx_funds[isin]
+        base[port_name] = s
 
     # Cash allocation delta-damping (constant policy)
     out = pd.DataFrame(index=valid_dates, columns=base.columns, dtype=float)
@@ -252,6 +186,65 @@ def compute_outputs(
             cash_pct = cash_pct_for_series(col)
             out.at[t, col] = out.at[t0, col] + (base.at[t, col] - base.at[t0, col]) * (1.0 - cash_pct)
 
+    # If published history is provided, scale (chain) outputs to the latest anchor date
+    # where ALL series have published values AND the date exists in our computed valid dates.
+    # Strict behavior: if no such anchor exists, return empty output (do not fabricate 1.0 series).
+    if published_df_long is not None and not published_df_long.empty:
+        pub = published_df_long.copy()
+        required_cols = {"rate_date", "series_code", "value"}
+        if not required_cols.issubset(set(pub.columns)):
+            raise ValueError("published_df_long must have columns: rate_date, series_code, value")
+
+        pub["rate_date"] = pd.to_datetime(pub["rate_date"]).dt.normalize()
+        pub_w = pub.pivot_table(index="rate_date", columns="series_code", values="value", aggfunc="last")
+
+        # Track published coverage for diagnostics
+        if len(pub_w.index) > 0:
+            coverage["published_max_date"] = pub_w.index.max().date()
+        else:
+            coverage["published_max_date"] = None
+
+        common_dates = sorted(set(out.index).intersection(set(pub_w.index)))
+        anchor_ts = None
+        missing_for_best = None
+
+        # Choose the most recent common date that has COMPLETE published values for all series
+        for cand in reversed(common_dates):
+            missing = [c for c in out.columns if (c not in pub_w.columns) or pd.isna(pub_w.at[cand, c])]
+            if not missing:
+                anchor_ts = cand
+                break
+            missing_for_best = missing
+
+        if anchor_ts is None:
+            coverage["no_anchor"] = True
+            if common_dates:
+                coverage["anchor_candidates"] = [d.date() for d in common_dates[-10:]]  # last 10 candidates
+                if missing_for_best is not None:
+                    coverage["missing_anchor_series"] = missing_for_best
+            meta = {
+                "tr_yearly_yield": tr_yearly_yield,
+                "require_all_navs": require_all_navs,
+                "require_fx_same_day": require_fx_same_day,
+                "base_date_for_normalization": str(base_date.date()),
+            }
+            return pd.DataFrame(columns=SERIES_ORDER), meta, coverage
+
+        # Scale each series so that computed value on anchor date equals published value on anchor date
+        denom = out.loc[anchor_ts, out.columns]
+        if (denom == 0).any():
+            zeros = denom[denom == 0].index.tolist()
+            raise ValueError(f"Cannot anchor-scale on {anchor_ts.date()} because computed value is 0 for: {zeros}")
+
+        scales = pub_w.loc[anchor_ts, out.columns] / denom
+        out = out.mul(scales, axis=1)
+        coverage["anchored"] = True
+        coverage["anchor_date"] = anchor_ts.date()
+    else:
+        coverage["anchored"] = False
+        coverage["anchor_date"] = None
+        coverage["published_max_date"] = None
+
     out = out.round(ROUND_DECIMALS)
     out = out[SERIES_ORDER]
 
@@ -262,6 +255,8 @@ def compute_outputs(
         "tr_eur_base_date": str(TR_EUR_BASE_DATE),
         "tr_eur_base_fx_used": base_fx,
         "base_date_for_normalization": str(base_date.date()),
+        "anchored": bool(coverage.get("anchored", False)),
+        "anchor_date": str(coverage.get("anchor_date")) if coverage.get("anchor_date") else None,
         "require_all_navs": require_all_navs,
         "require_fx_same_day": require_fx_same_day,
         "cash_policy": {
