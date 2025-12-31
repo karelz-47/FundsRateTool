@@ -924,6 +924,7 @@ elif page_key == "menu_calc":
                         t("calc_publish_saved", "Saved computed rows to published history:")
                         + f" {n:,}"
                     )
+
     # -------------------------------------------------------------------------
     # 4) Calculate & Export
     # -------------------------------------------------------------------------
@@ -1195,6 +1196,7 @@ elif page_key == "menu_calc":
                 st.success(
                     f"{t('backfill_upserted', 'Upserted rows into published_rates')}: {n:,}"
                 )
+
 
 
 
