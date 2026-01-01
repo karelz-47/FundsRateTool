@@ -725,7 +725,7 @@ with SessionLocal() as session:
     elif page_key == "menu_audit":
         st.subheader(t("audit_page_title", "Audit: saved calculation runs"))
 
-        runs = session.execute(select(CalcRun).order_by(CalcRun.created_at.desc())).scalars().all()
+        runs = session.execute(select(CalcRun).order_by(CalcRun.run_ts.desc())).scalars().all()
         if not runs:
             st.info(t("audit_no_runs", "No saved calc runs yet."))
         else:
@@ -780,6 +780,7 @@ with SessionLocal() as session:
                 st.success(
                     f"{t('backfill_upserted', 'Upserted rows into published_rates')}: {n:,}"
                 )
+
 
 
 
