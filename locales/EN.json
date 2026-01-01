@@ -62,6 +62,7 @@
   "calc_watermark_none": "No published history watermark found yet.",
   "calc_from_adjusted": "Start date adjusted because published history exists up to",
   "calc_range_within_watermark": "Selected range is fully within backfilled history. No new days to compute.",
+  "calc_no_anchor": "Strict mode: no anchor date found. Import NAV+FX for at least one date that exists in published history for all series.",
 
   "audit_page_title": "Audit: saved calculation runs",
   "audit_no_runs": "No saved calc runs yet.",
