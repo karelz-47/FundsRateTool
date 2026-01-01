@@ -138,6 +138,8 @@ GUARANTEED_SERIES_CODES = {
     "NOVIS_GAR_EUR",
 }
 
+GUARANTEED_SERIES = GUARANTEED_SERIES_CODES
+
 # 2) Cash allocation per series (non-guaranteed)
 # Values are constants and easy to edit.
 # Any series not listed here will fall back to DEFAULT_CASH_PCT.
@@ -146,12 +148,13 @@ DEFAULT_CASH_PCT = 0.00
 CASH_PCT_BY_SERIES = {
     # Set to 0.05 (5%) for the non-guaranteed series that should use cash damping.
     # Replace keys with YOUR actual series codes from SERIES_ORDER.
-    "FID_EM_ASIA": 0.05,       # LU0329678410
-    "FID_GLOB_DIV_HDG": 0.05,  # LU0605515377
-    "JPM_GLOB_INCOME": 0.05,   # LU0740858492
-    "JPM_EM_DIV": 0.05,        # LU0862449690
-    "FID_MULTI_ASSET": 0.05,   # LU1088281024
+    "LU0329678410": 0.05,       # LU0329678410 FID_EM_ASIA
+    "LU0605515377": 0.05,  # LU0605515377 FID_GLOB_DIV_HDG
+    "LU0740858492": 0.05,   # LU0740858492 JPM_GLOB_INCOME
+    "LU0862449690": 0.05,        # LU0862449690 JPM_EM_DIV
+    "LU1088281024": 0.05,   # LU1088281024 FID_MULTI_ASSET
 
     # Everything else (including Templeton, HOLD/HU funds, JPM LatAm) effectively 0.00 by default,
     # and guaranteed funds are hard-forced to 0.00 via GUARANTEED_SERIES_CODES.
 }
+
