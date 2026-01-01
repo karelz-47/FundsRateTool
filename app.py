@@ -539,14 +539,35 @@ with SessionLocal() as session:
             st.stop()
 
         if st.button(t("calc_run", "Run calculation")):
+            published_long = _load_published(session, date(1900, 1, 1), date_to)
             out_df, meta, coverage = compute_outputs(
                 fx_df=fx_df,
                 nav_df=nav_df,
                 tr_yearly_yield=tr_yield,
                 require_all_navs=require_all_navs,
                 require_fx_same_day=require_fx_same_day,
+                published_df_long=published_long,
             )
 
+            if coverage.get("no_anchor"):
+                st.error(
+                    t(
+                        "calc_no_anchor",
+                        "Strict mode: no anchor date found. Import NAV+FX for at least one date that exists in published history for all series.",
+                     )
+                )
+                diag = {
+                    k: coverage.get(k)
+                    for k in ["published_max_date", "anchor_candidates", "missing_anchor_series"]
+                    if k in coverage
+                }
+                if diag:
+                    st.json(diag)
+                st.session_state.pop("out_df", None)
+                st.session_state.pop("out_meta", None)
+                st.session_state.pop("out_coverage", None)
+                st.stop()
+                
             if coverage.get("nav_dates_missing_fx"):
                 st.warning(t("calc_missing_fx_warn", "Some NAV dates have no FX yet."))
                 st.dataframe(
@@ -578,9 +599,21 @@ with SessionLocal() as session:
                 st.session_state.pop("out_coverage", None)
                 st.stop()
 
-            out_f = out_df.loc[
-                (out_df.index.date >= date_from) & (out_df.index.date <= date_to)
-            ].copy()
+            published_w = (
+                published_long.pivot_table(index="rate_date", columns="series_code", values="value", aggfunc="last")
+                if not published_long.empty
+                else pd.DataFrame()
+            )
+            if not published_w.empty:
+                published_w.index = pd.to_datetime(published_w.index).dt.normalize()
+                published_w = published_w.reindex(columns=SERIES_ORDER)
+
+            final_out = published_w.combine_first(out_df) if not published_w.empty else out_df
+            final_out = final_out.reindex(columns=SERIES_ORDER)
+
+            out_f = final_out.loc[
+                (final_out.index.date >= date_from) & (final_out.index.date <= date_to)
+                ].copy()
 
             st.session_state["out_df"] = out_f
             st.session_state["out_meta"] = meta
@@ -651,7 +684,7 @@ with SessionLocal() as session:
                     "Save computed outputs after watermark to published history",
                 )
             ):
-                df_to_save = out_f.copy()
+                df_to_save = out_df.copy()
                 df_to_save["rate_date"] = pd.to_datetime(df_to_save.index).date
                 if wm:
                     df_to_save = df_to_save[df_to_save["rate_date"] > wm]
@@ -747,6 +780,7 @@ with SessionLocal() as session:
                 st.success(
                     f"{t('backfill_upserted', 'Upserted rows into published_rates')}: {n:,}"
                 )
+
 
 
 
