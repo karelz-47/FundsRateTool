@@ -30,6 +30,8 @@
   "nav_save_btn": "Save parsed NAVs to DB",
   "nav_saved": "Saved/updated NAV rows.",
   "nav_rows_db": "NAV rows stored in DB",
+  "nav_rows_db_empty": "No NAV rows stored in DB yet.",
+  "nav_expand_all": "Expand all days",
 
   "calc_title": "Calculate outputs and export",
   "calc_tr_yield": "TR yearly yield",
