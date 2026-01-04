@@ -30,6 +30,8 @@
   "nav_save_btn": "NAV mentése az adatbázisba",
   "nav_saved": "NAV sorok mentve/frissítve.",
   "nav_rows_db": "NAV sorok az adatbázisban",
+  "nav_rows_db_empty": "Még nincs NAV adat elmentve az adatbázisban.",
+  "nav_expand_all": "Összes nap kibontása",
 
   "cash_title": "Cash allokáció (0..1) sorozatonként és dátumonként (opcionális)",
   "cash_caption": "Excel delta-damping: out_t = out_{t-1} + (base_t - base_{t-1})*(1-cash_pct). Ha nem használja, maradjon 0.",
