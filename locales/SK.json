@@ -30,6 +30,8 @@
   "nav_save_btn": "Uložiť NAV do DB",
   "nav_saved": "Uložené/aktualizované NAV riadky.",
   "nav_rows_db": "NAV riadky v DB",
+  "nav_rows_db_empty": "V databáze zatiaľ nie sú uložené žiadne NAV údaje.",
+  "nav_expand_all": "Rozbaliť všetky dni",
 
   "cash_title": "Cash alokácia (0..1) na sériu a dátum (voliteľné)",
   "cash_caption": "Zodpovedá Excel delta-damping: out_t = out_{t-1} + (base_t - base_{t-1})*(1-cash_pct). Ak nepoužívate, nechajte 0.",
