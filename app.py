@@ -240,6 +240,54 @@ def _load_nav(session) -> pd.DataFrame:
         .sort_values(["nav_date", "isin"])
     )
 
+def _load_nav_summary(session) -> pd.DataFrame:
+    rows = session.execute(
+        select(
+            FundNav.nav_date.label("nav_date"),
+            func.count(FundNav.id).label("nav_count"),
+        )
+        .group_by(FundNav.nav_date)
+        .order_by(FundNav.nav_date.desc())
+    ).all()
+
+    if not rows:
+        return pd.DataFrame(columns=["nav_date", "nav_count"])
+
+    return pd.DataFrame(rows, columns=["nav_date", "nav_count"])
+
+
+def _load_nav_for_date(session, nav_date: date) -> pd.DataFrame:
+    rows = (
+        session.execute(
+            select(FundNav)
+            .where(FundNav.nav_date == nav_date)
+            .order_by(FundNav.isin)
+        )
+        .scalars()
+        .all()
+    )
+
+    if not rows:
+        return pd.DataFrame(
+            columns=["nav_date", "isin", "nav", "currency", "fund_name", "source_email_date", "raw_hash", "created_at"]
+        )
+
+    return pd.DataFrame(
+        [
+            {
+                "nav_date": r.nav_date,
+                "isin": r.isin,
+                "nav": r.nav,
+                "currency": r.currency,
+                "fund_name": r.fund_name,
+                "source_email_date": getattr(r, "source_email_date", None),
+                "raw_hash": getattr(r, "raw_hash", None),
+                "created_at": r.created_at,
+            }
+            for r in rows
+        ]
+    )
+
 def _current_month_range() -> Tuple[date, date]:
     today = date.today()
     start = date(today.year, today.month, 1)
@@ -470,8 +518,21 @@ with SessionLocal() as session:
                 st.success(f"{t('nav_saved', 'Saved/updated NAV rows.')} ({saved})")
         st.divider()
         st.markdown(f"### {t('nav_rows_db', 'NAV rows stored in DB')}")
-        nav_df = _load_nav(session)
-        st.dataframe(nav_df, use_container_width=True)
+
+        nav_summary_df = _load_nav_summary(session)
+
+        if nav_summary_df.empty:
+            st.info(t("nav_rows_db_empty", "No NAV rows stored in DB yet."))
+        else:
+             expand_all = st.checkbox(t("nav_expand_all", "Expand all days"), value=False)
+
+             for _, r in nav_summary_df.iterrows():
+                 d = r["nav_date"]
+                 cnt = int(r["nav_count"])
+
+                 with st.expander(f"{d} ({cnt})", expanded=expand_all):
+                     day_df = _load_nav_for_date(session, d)
+                     st.dataframe(day_df, use_container_width=True, hide_index=True)
 
 
     # -------------------------------------------------------------------------
@@ -781,6 +842,7 @@ with SessionLocal() as session:
                 st.success(
                     f"{t('backfill_upserted', 'Upserted rows into published_rates')}: {n:,}"
                 )
+
 
 
 
