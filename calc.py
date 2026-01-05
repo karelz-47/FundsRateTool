@@ -39,6 +39,8 @@ def compute_outputs(
     require_all_navs: bool = True,
     require_fx_same_day: bool = False,
     published_df_long: Optional[pd.DataFrame] = None,
+    date_from: Optional[date] = None,
+    date_to: Optional[date] = None,
 ) -> Tuple[pd.DataFrame, Dict[str, object], Dict[str, object]]:
     """
     Outputs are only for valid dates where:
@@ -62,19 +64,81 @@ def compute_outputs(
     fx["rate_date"] = pd.to_datetime(fx["rate_date"]).dt.normalize()
     nav["nav_date"] = pd.to_datetime(nav["nav_date"]).dt.normalize()
 
-    # Wide NAV table
+    # --- Requested window (for diagnostics and final slicing) ---
+    req_start = pd.Timestamp(date_from) if date_from else None
+    req_end = pd.Timestamp(date_to) if date_to else None
+
+    nav_req = nav.copy()
+    if req_start is not None:
+        nav_req = nav_req[nav_req["nav_date"] >= req_start]
+    if req_end is not None:
+        nav_req = nav_req[nav_req["nav_date"] <= req_end]
+
+    # Keep FX up to req_end (no need to keep future FX). Do NOT cut FX lower-bound because as-of merge
+    # may legitimately use a prior FX for the first requested NAV date.
+    fx_req = fx.copy()
+    if req_end is not None:
+        fx_req = fx_req[fx_req["rate_date"] <= req_end]
+
+    # --- Optional effective start extension (only when anchoring is used) ---
+    # If the user requests a window strictly AFTER the published watermark, we must include the watermark
+    # date in the computation so scaling can be applied.
+    eff_start = req_start
+    watermark_ts = None
+
+    if published_df_long is not None and not published_df_long.empty:
+        pub_tmp = published_df_long.copy()
+        pub_tmp["rate_date"] = pd.to_datetime(pub_tmp["rate_date"]).dt.normalize()
+        watermark_ts = pub_tmp["rate_date"].max()
+
+        # Only extend if the requested start exists and is after watermark
+        if eff_start is not None and watermark_ts is not None and eff_start > watermark_ts:
+            eff_start = watermark_ts
+
+    nav_eff = nav.copy()
+    if eff_start is not None:
+        nav_eff = nav_eff[nav_eff["nav_date"] >= eff_start]
+    if req_end is not None:
+        nav_eff = nav_eff[nav_eff["nav_date"] <= req_end]
+
+    # From here onward use nav_eff / fx_req for computation; use nav_req for diagnostics lists.
+    nav = nav_eff
+    fx = fx_req
+
+    # Diagnostics NAV wide (requested window)
+    nav_w_req = nav_req.pivot_table(index="nav_date", columns="isin", values="nav", aggfunc="last").sort_index()
+
+    # Computation NAV wide (may start earlier than requested due to watermark anchoring)
     nav_w = nav.pivot_table(index="nav_date", columns="isin", values="nav", aggfunc="last").sort_index()
 
     # Diagnostics: NAV completeness by date
     if require_all_navs:
+        nav_complete_mask_req = ~nav_w_req.isna().any(axis=1)
         nav_complete_mask = ~nav_w.isna().any(axis=1)
     else:
+        nav_complete_mask_req = ~nav_w_req.isna().all(axis=1)
         nav_complete_mask = ~nav_w.isna().all(axis=1)
 
-    nav_dates_incomplete = nav_w.index[~nav_complete_mask].date.tolist()
+    nav_dates_incomplete = nav_w_req.index[~nav_complete_mask_req].date.tolist()
 
     # FX as-of join (Excel parity): last FX <= NAV date
     fx_sorted = fx.sort_values("rate_date").copy()
+        # Requested-window FX coverage diagnostics
+    nav_dates_req = pd.DataFrame({"date": nav_w_req.index})
+    fx_asof_req = pd.merge_asof(
+        nav_dates_req.sort_values("date"),
+        fx_sorted.sort_values("rate_date"),
+        left_on="date",
+        right_on="rate_date",
+        direction="backward",
+    )
+    fx_ok_req = ~fx_asof_req["rate_date"].isna()
+    if require_fx_same_day:
+        fx_days = set(fx["rate_date"].dt.date.tolist())
+        fx_ok_req = fx_ok_req & fx_asof_req["date"].dt.date.isin(fx_days)
+    nav_dates_missing_fx = fx_asof_req.loc[~fx_ok_req, "date"].dt.date.tolist()
+
+    # Computation-window FX as-of (used for actual conversions)
     nav_dates = pd.DataFrame({"date": nav_w.index})
     fx_asof = pd.merge_asof(
         nav_dates.sort_values("date"),
@@ -83,15 +147,10 @@ def compute_outputs(
         right_on="rate_date",
         direction="backward",
     )
-
     fx_ok = ~fx_asof["rate_date"].isna()
-
-    # If strict "same day FX" required, enforce that too
     if require_fx_same_day:
         fx_days = set(fx["rate_date"].dt.date.tolist())
         fx_ok = fx_ok & fx_asof["date"].dt.date.isin(fx_days)
-
-    nav_dates_missing_fx = fx_asof.loc[~fx_ok, "date"].dt.date.tolist()
 
     # Valid dates are those with NAV completeness + FX availability
     valid_mask = fx_ok.values & nav_complete_mask.reindex(nav_w.index).values
@@ -101,7 +160,7 @@ def compute_outputs(
         "valid_dates": valid_dates.date.tolist(),
         "nav_dates_missing_fx": nav_dates_missing_fx,
         "nav_dates_incomplete": nav_dates_incomplete,
-        "nav_dates_in_db": nav_w.index.date.tolist(),
+        "nav_dates_in_db": nav_w_req.index.date.tolist(),
         "fx_dates_in_db": fx["rate_date"].dt.date.unique().tolist(),
         "require_all_navs": require_all_navs,
         "require_fx_same_day": require_fx_same_day,
@@ -244,7 +303,15 @@ def compute_outputs(
         coverage["anchored"] = False
         coverage["anchor_date"] = None
         coverage["published_max_date"] = None
+        coverage["requested_date_from"] = str(date_from) if date_from else None
+        coverage["requested_date_to"] = str(date_to) if date_to else None
 
+        # Final slicing to requested window
+    if req_start is not None:
+        out = out[out.index >= req_start]
+    if req_end is not None:
+        out = out[out.index <= req_end]
+    
     out = out.round(ROUND_DECIMALS)
     out = out[SERIES_ORDER]
 
@@ -268,3 +335,4 @@ def compute_outputs(
     }
 
     return out, meta, coverage
+
