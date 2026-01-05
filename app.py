@@ -608,7 +608,7 @@ with SessionLocal() as session:
                 tr_yearly_yield=tr_yield,
                 require_all_navs=require_all_navs,
                 require_fx_same_day=require_fx_same_day,
-                published_df_long=published_df_long,
+                published_df_long=published_long,
                 date_from=start_date,   # datetime.date
                 date_to=end_date,       # datetime.date
             )
@@ -845,6 +845,7 @@ with SessionLocal() as session:
                 st.success(
                     f"{t('backfill_upserted', 'Upserted rows into published_rates')}: {n:,}"
                 )
+
 
 
 
