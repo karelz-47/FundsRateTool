@@ -605,7 +605,7 @@ with SessionLocal() as session:
             out, meta, coverage = compute_outputs(
                 fx_df=fx_df,
                 nav_df=nav_df,
-                tr_yearly_yield=tr_yearly,
+                tr_yearly_yield=tr_yield,
                 require_all_navs=require_all_navs,
                 require_fx_same_day=require_fx_same_day,
                 published_df_long=published_df_long,
@@ -845,6 +845,7 @@ with SessionLocal() as session:
                 st.success(
                     f"{t('backfill_upserted', 'Upserted rows into published_rates')}: {n:,}"
                 )
+
 
 
 
