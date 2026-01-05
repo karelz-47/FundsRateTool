@@ -602,14 +602,17 @@ with SessionLocal() as session:
 
         if st.button(t("calc_run", "Run calculation")):
             published_long = _load_published(session, date(1900, 1, 1), date_to)
-            out_df, meta, coverage = compute_outputs(
+            out, meta, coverage = compute_outputs(
                 fx_df=fx_df,
                 nav_df=nav_df,
-                tr_yearly_yield=tr_yield,
+                tr_yearly_yield=tr_yearly,
                 require_all_navs=require_all_navs,
                 require_fx_same_day=require_fx_same_day,
-                published_df_long=published_long,
+                published_df_long=published_df_long,
+                date_from=start_date,   # datetime.date
+                date_to=end_date,       # datetime.date
             )
+
 
             if coverage.get("no_anchor"):
                 st.error(
@@ -842,6 +845,7 @@ with SessionLocal() as session:
                 st.success(
                     f"{t('backfill_upserted', 'Upserted rows into published_rates')}: {n:,}"
                 )
+
 
 
 
