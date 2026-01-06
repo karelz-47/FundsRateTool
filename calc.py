@@ -38,6 +38,7 @@ def compute_outputs(
     tr_yearly_yield: float = TR_YEARLY_YIELD_DEFAULT,
     require_all_navs: bool = True,
     require_fx_same_day: bool = False,
+    use_watermark_anchor: bool = True,  # NEW
     published_df_long: Optional[pd.DataFrame] = None,
     date_from: Optional[date] = None,
     date_to: Optional[date] = None,
@@ -91,8 +92,13 @@ def compute_outputs(
         pub_tmp["rate_date"] = pd.to_datetime(pub_tmp["rate_date"]).dt.normalize()
         watermark_ts = pub_tmp["rate_date"].max()
 
-        # Only extend if the requested start exists and is after watermark
-        if eff_start is not None and watermark_ts is not None and eff_start > watermark_ts:
+        # Only extend if the requested start exists and is after watermark AND continuity mode is enabled
+        if (
+            use_watermark_anchor
+            and eff_start is not None
+            and watermark_ts is not None
+            and eff_start > watermark_ts
+        ):
             eff_start = watermark_ts
 
     nav_eff = nav.copy()
@@ -123,7 +129,7 @@ def compute_outputs(
 
     # FX as-of join (Excel parity): last FX <= NAV date
     fx_sorted = fx.sort_values("rate_date").copy()
-        # Requested-window FX coverage diagnostics
+    # Requested-window FX coverage diagnostics
     nav_dates_req = pd.DataFrame({"date": nav_w_req.index})
     fx_asof_req = pd.merge_asof(
         nav_dates_req.sort_values("date"),
@@ -335,4 +341,5 @@ def compute_outputs(
     }
 
     return out, meta, coverage
+
 
