@@ -48,6 +48,8 @@
   "calc_incomplete_nav_warn": "Some NAV dates are incomplete (missing one or more fund NAVs).",
   "calc_no_valid": "No valid output dates yet. Import the missing FX or NAVs to unlock calculation.",
   "calc_complete": "Calculation complete.",
+  "calc_use_watermark_anchor": "Use backfilled continuity (anchor to watermark)",
+  "calc_use_watermark_anchor_help": "If enabled and your start date is after the watermark, the engine will extend the calculation back to the watermark to ensure level continuity. Disable for testing/calibration runs that should start strictly at your selected start date.",
 
   "export_title": "Export",
   "export_csv": "Download CSV",
