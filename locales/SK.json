@@ -54,6 +54,8 @@
   "calc_incomplete_nav_warn": "Niektoré NAV dátumy sú neúplné (chýba NAV pre niektorý fond).",
   "calc_no_valid": "Zatiaľ nie sú platné dátumy výstupu. Doplňte chýbajúce FX alebo NAV.",
   "calc_complete": "Výpočet hotový.",
+  "calc_use_watermark_anchor": "Použiť kontinuitu z backfillu (ukotviť na watermark)",
+  "calc_use_watermark_anchor_help": "Ak je zapnuté a počiatočný dátum je po watermarku, výpočet sa rozšíri späť na watermark, aby bola zachovaná kontinuita úrovní. Vypnite pre testovanie/kalibráciu, keď sa má počítať striktne od zvoleného dátumu.",
 
   "export_title": "Export",
   "export_csv": "Stiahnuť CSV",
