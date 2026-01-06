@@ -614,6 +614,7 @@ with SessionLocal() as session:
                 date_to=date_to,       # datetime.date
             )
 
+            st.session_state["computed_out_df"] = out_df.copy()
 
             if coverage.get("no_anchor"):
                 st.error(
@@ -846,6 +847,7 @@ with SessionLocal() as session:
                 st.success(
                     f"{t('backfill_upserted', 'Upserted rows into published_rates')}: {n:,}"
                 )
+
 
 
 
