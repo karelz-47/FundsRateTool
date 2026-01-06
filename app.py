@@ -584,25 +584,26 @@ with SessionLocal() as session:
         with col2:
             date_to = st.date_input(t("calc_to", "To (inclusive)"), value=default_to)
 
-        if wm and date_from <= wm:
-            st.warning(
-                t("calc_from_adjusted", "Start date adjusted because published history exists up to")
-                + f" {wm}."
-            )
-            date_from = wm + dt.timedelta(days=1)
-
+        # Watermark is informational only: we allow recalculation before/through watermark for calibration.
         if wm and date_to <= wm:
-            st.error(
-                t(
-                    "calc_range_within_watermark",
-                    "Selected range is fully within backfilled history. No new days to compute.",
-                )
+            st.info(
+                f"Selected range is within historical backfill (<= {wm:%Y-%m-%d}). "
+                "The app will recalculate from your imported NAV/FX and you can compare versus backfilled rates."
             )
-            st.stop()
+        elif wm and date_from <= wm < date_to:
+            st.info(
+                f"Selected range crosses the watermark ({wm:%Y-%m-%d}). "
+                "Backfilled rates will be used for anchoring; post-watermark values are chained from the anchor."
+            )
+        elif wm and date_from > wm:
+            st.info(
+                f"Selected range starts after the watermark ({wm:%Y-%m-%d}). "
+                "If inputs are missing between the anchor and your start date, the run will fail (expected)."
+            )
 
         if st.button(t("calc_run", "Run calculation")):
             published_long = _load_published(session, date(1900, 1, 1), date_to)
-            out, meta, coverage = compute_outputs(
+            out_df, meta, coverage = compute_outputs(
                 fx_df=fx_df,
                 nav_df=nav_df,
                 tr_yearly_yield=tr_yield,
@@ -790,7 +791,7 @@ with SessionLocal() as session:
     elif page_key == "menu_audit":
         st.subheader(t("audit_page_title", "Audit: saved calculation runs"))
 
-        runs = session.execute(select(CalcRun).order_by(CalcRun.run_ts.desc())).scalars().all()
+        runs = session.execute(select(CalcRun).order_by(CalcRun.created_at.desc())).scalars().all()
         if not runs:
             st.info(t("audit_no_runs", "No saved calc runs yet."))
         else:
@@ -845,6 +846,7 @@ with SessionLocal() as session:
                 st.success(
                     f"{t('backfill_upserted', 'Upserted rows into published_rates')}: {n:,}"
                 )
+
 
 
 
