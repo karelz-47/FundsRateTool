@@ -684,7 +684,7 @@ with SessionLocal() as session:
                 else pd.DataFrame()
             )
             if not published_w.empty:
-                published_w.index = pd.to_datetime(published_w.index).dt.normalize()
+                published_w.index = pd.to_datetime(published_w.index).normalize()
                 published_w = published_w.reindex(columns=SERIES_ORDER)
 
             final_out = published_w.combine_first(out_df) if not published_w.empty else out_df
@@ -859,6 +859,7 @@ with SessionLocal() as session:
                 st.success(
                     f"{t('backfill_upserted', 'Upserted rows into published_rates')}: {n:,}"
                 )
+
 
 
 
