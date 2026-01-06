@@ -601,6 +601,17 @@ with SessionLocal() as session:
                 "If inputs are missing between the anchor and your start date, the run will fail (expected)."
             )
 
+        use_watermark_anchor = st.checkbox(
+            t("calc_use_watermark_anchor", "Use backfilled continuity (anchor to watermark)"),
+            value=True,
+            help=t(
+                "calc_use_watermark_anchor_help",
+                "If enabled and your start date is after the watermark, the engine will extend the calculation back "
+                "to the watermark to ensure level continuity. Disable for testing/calibration runs that should start "
+               "strictly at your selected start date.",
+            ),
+        )
+        
         if st.button(t("calc_run", "Run calculation")):
             published_long = _load_published(session, date(1900, 1, 1), date_to)
             out_df, meta, coverage = compute_outputs(
@@ -609,6 +620,7 @@ with SessionLocal() as session:
                 tr_yearly_yield=tr_yield,
                 require_all_navs=require_all_navs,
                 require_fx_same_day=require_fx_same_day,
+                use_watermark_anchor=use_watermark_anchor,  # NEW
                 published_df_long=published_long,
                 date_from=date_from,   # datetime.date
                 date_to=date_to,       # datetime.date
@@ -847,6 +859,7 @@ with SessionLocal() as session:
                 st.success(
                     f"{t('backfill_upserted', 'Upserted rows into published_rates')}: {n:,}"
                 )
+
 
 
 
