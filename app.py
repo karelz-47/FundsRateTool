@@ -6,6 +6,7 @@ import json
 import re
 import pandas as pd
 from datetime import date
+import datetime as dt
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
@@ -40,7 +41,7 @@ from db import (
 )
 from fx_import import parse_tb_rates_from_csv_bytes, try_parse_date_from_filename
 from nav_parser import parse_baha_paste
-from calc import compute_outputs
+from calc_fixed import compute_outputs
 from export import to_csv_bytes, to_xlsx_bytes
 from config import NAV_CURRENCY, SERIES_ORDER, TR_YEARLY_YIELD_DEFAULT
 
@@ -584,6 +585,10 @@ with SessionLocal() as session:
         with col2:
             date_to = st.date_input(t("calc_to", "To (inclusive)"), value=default_to)
 
+        # Deterministic anchor: D-1 of selected start
+        anchor_date = (date_from - dt.timedelta(days=1))
+        st.info(f\"Anchor date (D-1): {anchor_date:%Y-%m-%d} (must exist in published history)\")
+
         # Watermark is informational only: we allow recalculation before/through watermark for calibration.
         if wm and date_to <= wm:
             st.info(
@@ -601,27 +606,15 @@ with SessionLocal() as session:
                 "If inputs are missing between the anchor and your start date, the run will fail (expected)."
             )
 
-        use_watermark_anchor = st.checkbox(
-            t("calc_use_watermark_anchor", "Use backfilled continuity (anchor to watermark)"),
-            value=True,
-            help=t(
-                "calc_use_watermark_anchor_help",
-                "If enabled and your start date is after the watermark, the engine will extend the calculation back "
-                "to the watermark to ensure level continuity. Disable for testing/calibration runs that should start "
-               "strictly at your selected start date.",
-            ),
-        )
-        
-        if st.button(t("calc_run", "Run calculation")):
+        # Watermark continuity checkbox removed (anchor is deterministic: date_from-1)
+if st.button(t("calc_run", "Run calculation")):
             published_long = _load_published(session, date(1900, 1, 1), date_to)
             out_df, meta, coverage = compute_outputs(
                 fx_df=fx_df,
                 nav_df=nav_df,
                 tr_yearly_yield=tr_yield,
                 require_all_navs=require_all_navs,
-                require_fx_same_day=require_fx_same_day,
-                use_watermark_anchor=use_watermark_anchor,  # NEW
-                published_df_long=published_long,
+                require_fx_same_day=require_fx_same_day,                published_df_long=published_long,
                 date_from=date_from,   # datetime.date
                 date_to=date_to,       # datetime.date
             )
@@ -678,16 +671,8 @@ with SessionLocal() as session:
                 st.session_state.pop("out_coverage", None)
                 st.stop()
 
-            published_w = (
-                published_long.pivot_table(index="rate_date", columns="series_code", values="value", aggfunc="last")
-                if not published_long.empty
-                else pd.DataFrame()
-            )
-            if not published_w.empty:
-                published_w.index = pd.to_datetime(published_w.index).normalize()
-                published_w = published_w.reindex(columns=SERIES_ORDER)
-
-            final_out = published_w.combine_first(out_df) if not published_w.empty else out_df
+            # Do NOT overlay backfilled history; computed outputs are anchored only via D-1.
+            final_out = out_df
             final_out = final_out.reindex(columns=SERIES_ORDER)
 
             out_f = final_out.loc[
