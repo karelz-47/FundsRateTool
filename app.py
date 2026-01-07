@@ -584,43 +584,23 @@ with SessionLocal() as session:
         with col2:
             date_to = st.date_input(t("calc_to", "To (inclusive)"), value=default_to)
 
-        # Watermark is informational only: we allow recalculation before/through watermark for calibration.
-        if wm and date_to <= wm:
-            st.info(
-                f"Selected range is within historical backfill (<= {wm:%Y-%m-%d}). "
-                "The app will recalculate from your imported NAV/FX and you can compare versus backfilled rates."
-            )
-        elif wm and date_from <= wm < date_to:
-            st.info(
-                f"Selected range crosses the watermark ({wm:%Y-%m-%d}). "
-                "Backfilled rates will be used for anchoring; post-watermark values are chained from the anchor."
-            )
-        elif wm and date_from > wm:
-            st.info(
-                f"Selected range starts after the watermark ({wm:%Y-%m-%d}). "
-                "If inputs are missing between the anchor and your start date, the run will fail (expected)."
-            )
-
-        use_watermark_anchor = st.checkbox(
-            t("calc_use_watermark_anchor", "Use backfilled continuity (anchor to watermark)"),
-            value=True,
-            help=t(
-                "calc_use_watermark_anchor_help",
-                "If enabled and your start date is after the watermark, the engine will extend the calculation back "
-                "to the watermark to ensure level continuity. Disable for testing/calibration runs that should start "
-               "strictly at your selected start date.",
-            ),
+        # Deterministic anchor: the day before the requested start date.
+        # The engine will run only if published/backfilled history contains ALL series on this anchor date.
+        anchor_date = date_from - dt.timedelta(days=1)
+        st.info(
+            f"{t('calc_anchor', 'Required anchor date (D-1)')}: {anchor_date:%Y-%m-%d}. "
+            f"{t('calc_anchor_rule', 'If published history is missing this date for any series, nothing will be calculated.')}"
         )
-        
+
         if st.button(t("calc_run", "Run calculation")):
-            published_long = _load_published(session, date(1900, 1, 1), date_to)
+            published_long = _load_published(session, anchor_date, anchor_date)
             out_df, meta, coverage = compute_outputs(
                 fx_df=fx_df,
                 nav_df=nav_df,
                 tr_yearly_yield=tr_yield,
                 require_all_navs=require_all_navs,
                 require_fx_same_day=require_fx_same_day,
-                use_watermark_anchor=use_watermark_anchor,  # NEW
+                use_watermark_anchor=False,  # legacy param (unused in strict anchor mode)
                 published_df_long=published_long,
                 date_from=date_from,   # datetime.date
                 date_to=date_to,       # datetime.date
@@ -678,17 +658,8 @@ with SessionLocal() as session:
                 st.session_state.pop("out_coverage", None)
                 st.stop()
 
-            published_w = (
-                published_long.pivot_table(index="rate_date", columns="series_code", values="value", aggfunc="last")
-                if not published_long.empty
-                else pd.DataFrame()
-            )
-            if not published_w.empty:
-                published_w.index = pd.to_datetime(published_w.index).normalize()
-                published_w = published_w.reindex(columns=SERIES_ORDER)
-
-            final_out = published_w.combine_first(out_df) if not published_w.empty else out_df
-            final_out = final_out.reindex(columns=SERIES_ORDER)
+            # Published history is used ONLY for anchoring (D-1), not for overwriting computed values.
+            final_out = out_df.reindex(columns=SERIES_ORDER)
 
             out_f = final_out.loc[
                 (final_out.index.date >= date_from) & (final_out.index.date <= date_to)
@@ -859,6 +830,7 @@ with SessionLocal() as session:
                 st.success(
                     f"{t('backfill_upserted', 'Upserted rows into published_rates')}: {n:,}"
                 )
+
 
 
 
