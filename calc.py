@@ -81,13 +81,36 @@ def compute_outputs(
     if req_end is not None:
         fx_req = fx_req[fx_req["rate_date"] <= req_end]
 
-    # --- Effective start: include required anchor day (D-1 of requested start) ---
-    # We seed continuity from published/backfilled values on the anchor day, and compute from inputs afterwards.
+    # --- Effective start: include an anchor day BEFORE the requested start (for historical normalization) ---
+    # We compute outputs for the requested window, but keep the historical level of each series.
+    # Anchor selection:
+    #   - cutoff = (requested_start - 1 day)
+    #   - choose the latest published date <= cutoff where ALL SERIES_ORDER have published values
+    #   - extend input window to include that anchor date (so NAV/FX returns from anchor -> start are computable)
     anchor_required = None
     if req_start is not None:
         anchor_required = (req_start - pd.Timedelta(days=1)).normalize()
 
-    eff_start = anchor_required if anchor_required is not None else req_start
+    anchor_ts_selected = None
+    if published_df_long is not None and not published_df_long.empty and anchor_required is not None:
+        pub_tmp = published_df_long.copy()
+        pub_tmp["rate_date"] = pd.to_datetime(pub_tmp["rate_date"]).dt.normalize()
+        pub_w0 = pub_tmp.pivot_table(
+            index="rate_date", columns="series_code", values="value", aggfunc="last"
+        ).sort_index()
+
+        candidates = pub_w0.index[pub_w0.index <= anchor_required]
+        for cand in reversed(candidates):
+            missing = [c for c in SERIES_ORDER if (c not in pub_w0.columns) or pd.isna(pub_w0.at[cand, c])]
+            if not missing:
+                anchor_ts_selected = cand
+                break
+
+    eff_start = (
+        anchor_ts_selected
+        if anchor_ts_selected is not None
+        else (anchor_required if anchor_required is not None else req_start)
+    )
 
     nav_eff = nav.copy()
     if eff_start is not None:
@@ -95,9 +118,9 @@ def compute_outputs(
     if req_end is not None:
         nav_eff = nav_eff[nav_eff["nav_date"] <= req_end]
 
-    # From here onward use nav_eff / fx_req for computation; use nav_req for diagnostics lists.
     nav = nav_eff
     fx = fx_req
+
 
     # Diagnostics NAV wide (requested window)
     nav_w_req = nav_req.pivot_table(index="nav_date", columns="isin", values="nav", aggfunc="last").sort_index()
@@ -302,7 +325,10 @@ def compute_outputs(
         if anchor_required is None:
             raise ValueError("date_from is required for strict anchoring")
 
-        anchor_ts = anchor_required
+        anchor_ts = anchor_ts_selected if "anchor_ts_selected" in locals() and anchor_ts_selected is not None else anchor_required
+        coverage["anchor_required_date"] = anchor_required.date() if anchor_required is not None else None
+        coverage["anchor_selected_date"] = anchor_ts.date() if anchor_ts is not None else None
+
 
         if anchor_ts not in pub_w.index:
             coverage["no_anchor"] = True
@@ -387,6 +413,7 @@ def compute_outputs(
     }
 
     return out, meta, coverage
+
 
 
 
