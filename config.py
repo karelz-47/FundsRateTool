@@ -127,7 +127,7 @@ TR_HUF_BASE_DATE = date(2014, 10, 1)
 TR_EUR_BASE_DATE = date(2015, 6, 1)
 TR_EUR_BASE_FX_FALLBACK = 313.03  # used if FX missing for 2015-06-01
 
-ROUND_DECIMALS = 5
+ROUND_DECIMALS = 8
 
 # config.py
 
@@ -157,4 +157,5 @@ CASH_PCT_BY_SERIES = {
     # Everything else (including Templeton, HOLD/HU funds, JPM LatAm) effectively 0.00 by default,
     # and guaranteed funds are hard-forced to 0.00 via GUARANTEED_SERIES_CODES.
 }
+
 
