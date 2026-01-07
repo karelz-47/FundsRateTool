@@ -689,10 +689,10 @@ if st.button(t("calc_run", "Run calculation")):
                 use_container_width=True,
             )
 
-        if "out_df" in st.session_state:
-            out_f = st.session_state["out_df"]
-            meta = st.session_state.get("out_meta", {})
-            coverage = st.session_state.get("out_coverage", {})
+            if "out_df" in st.session_state:
+                out_f = st.session_state["out_df"]
+                meta = st.session_state.get("out_meta", {})
+                coverage = st.session_state.get("out_coverage", {})
 
             st.subheader(t("export_title", "Export"))
             st.download_button(
@@ -844,6 +844,7 @@ if st.button(t("calc_run", "Run calculation")):
                 st.success(
                     f"{t('backfill_upserted', 'Upserted rows into published_rates')}: {n:,}"
                 )
+
 
 
 
