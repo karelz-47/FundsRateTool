@@ -81,25 +81,13 @@ def compute_outputs(
     if req_end is not None:
         fx_req = fx_req[fx_req["rate_date"] <= req_end]
 
-    # --- Optional effective start extension (only when anchoring is used) ---
-    # If the user requests a window strictly AFTER the published watermark, we must include the watermark
-    # date in the computation so scaling can be applied.
-    eff_start = req_start
-    watermark_ts = None
+    # --- Effective start: include required anchor day (D-1 of requested start) ---
+    # We seed continuity from published/backfilled values on the anchor day, and compute from inputs afterwards.
+    anchor_required = None
+    if req_start is not None:
+        anchor_required = (req_start - pd.Timedelta(days=1)).normalize()
 
-    if published_df_long is not None and not published_df_long.empty:
-        pub_tmp = published_df_long.copy()
-        pub_tmp["rate_date"] = pd.to_datetime(pub_tmp["rate_date"]).dt.normalize()
-        watermark_ts = pub_tmp["rate_date"].max()
-
-        # Only extend if the requested start exists and is after watermark AND continuity mode is enabled
-        if (
-            use_watermark_anchor
-            and eff_start is not None
-            and watermark_ts is not None
-            and eff_start > watermark_ts
-        ):
-            eff_start = watermark_ts
+    eff_start = anchor_required if anchor_required is not None else req_start
 
     nav_eff = nav.copy()
     if eff_start is not None:
@@ -218,10 +206,21 @@ def compute_outputs(
         else:
             raise ValueError(f"Unsupported currency for {isin}: {ccy}")
 
-    # Normalize each fund to 1.0 at the first valid date (relative series)
+    # Normalize each fund to 1.0 at its first available valid date (prevents NaN poisoning when some ISINs start later)
     base_date = valid_dates.min()
-    base_vals = nav_huf.loc[base_date]
-    idx_funds = nav_huf.divide(base_vals)
+    base_vals = {}
+    idx_funds = pd.DataFrame(index=valid_dates, columns=nav_huf.columns, dtype=float)
+
+    for isin in nav_huf.columns:
+        s = nav_huf[isin]
+        first_valid = s.first_valid_index()
+        if first_valid is None:
+            idx_funds[isin] = np.nan
+            continue
+        base_val = float(s.loc[first_valid])
+        base_vals[isin] = base_val
+        idx_funds[isin] = s / base_val
+
 
     # Portfolios (weighted sums of fund indices)
     base = pd.DataFrame(index=valid_dates, dtype=float)
@@ -240,16 +239,43 @@ def compute_outputs(
             s = s + float(w) * idx_funds[isin]
         base[port_name] = s
 
-    # Cash allocation delta-damping (constant policy)
+    # Cash allocation: split into risky component following 'base' and cash component accruing at TR daily yield.
     out = pd.DataFrame(index=valid_dates, columns=base.columns, dtype=float)
+
+    # Start from base levels. If some series start later (NaN at t0), we will initialize them when they first appear.
     out.iloc[0] = base.iloc[0]
 
     for i in range(1, len(valid_dates)):
         t = valid_dates[i]
         t0 = valid_dates[i - 1]
+        delta_days = (t.date() - t0.date()).days
+        if delta_days <= 0:
+            delta_days = 1
+        cash_growth = (1.0 + dy) ** float(delta_days)
+
         for col in base.columns:
+            prev = out.at[t0, col]
+
+            # If we don't have a previous value yet (series starts later), initialize from base when available.
+            if pd.isna(prev):
+                out.at[t, col] = base.at[t, col]
+                continue
+
             cash_pct = cash_pct_for_series(col)
-            out.at[t, col] = out.at[t0, col] + (base.at[t, col] - base.at[t0, col]) * (1.0 - cash_pct)
+
+            b0 = base.at[t0, col]
+            b1 = base.at[t, col]
+
+            # Risk ratio: if base missing, treat as flat (1.0) for that step.
+            if pd.isna(b0) or pd.isna(b1) or float(b0) == 0.0:
+                risk_ratio = 1.0
+            else:
+                risk_ratio = float(b1) / float(b0)
+
+            risk_part = float(prev) * (1.0 - cash_pct) * risk_ratio
+            cash_part = float(prev) * cash_pct * cash_growth
+            out.at[t, col] = risk_part + cash_part
+
 
     # If published history is provided, scale (chain) outputs to the latest anchor date
     # where ALL series have published values AND the date exists in our computed valid dates.
@@ -269,24 +295,44 @@ def compute_outputs(
         else:
             coverage["published_max_date"] = None
 
-        common_dates = sorted(set(out.index).intersection(set(pub_w.index)))
-        anchor_ts = None
-        missing_for_best = None
+        # Required anchor date is D-1 of the requested start date.
+        # We require:
+        #   - published value exists for ALL output series on that anchor date
+        #   - anchor date exists in computed valid dates (NAV+FX coverage)
+        if anchor_required is None:
+            raise ValueError("date_from is required for strict anchoring")
 
-        # Choose the most recent common date that has COMPLETE published values for all series
-        for cand in reversed(common_dates):
-            missing = [c for c in out.columns if (c not in pub_w.columns) or pd.isna(pub_w.at[cand, c])]
-            if not missing:
-                anchor_ts = cand
-                break
-            missing_for_best = missing
+        anchor_ts = anchor_required
 
-        if anchor_ts is None:
+        if anchor_ts not in pub_w.index:
             coverage["no_anchor"] = True
-            if common_dates:
-                coverage["anchor_candidates"] = [d.date() for d in common_dates[-10:]]  # last 10 candidates
-                if missing_for_best is not None:
-                    coverage["missing_anchor_series"] = missing_for_best
+            coverage["anchor_required_date"] = anchor_ts.date()
+            coverage["missing_anchor_series"] = out.columns.tolist()
+            meta = {
+                "tr_yearly_yield": tr_yearly_yield,
+                "require_all_navs": require_all_navs,
+                "require_fx_same_day": require_fx_same_day,
+                "base_date_for_normalization": str(base_date.date()),
+            }
+            return pd.DataFrame(columns=SERIES_ORDER), meta, coverage
+
+        missing = [c for c in out.columns if (c not in pub_w.columns) or pd.isna(pub_w.at[anchor_ts, c])]
+        if missing:
+            coverage["no_anchor"] = True
+            coverage["anchor_required_date"] = anchor_ts.date()
+            coverage["missing_anchor_series"] = missing
+            meta = {
+                "tr_yearly_yield": tr_yearly_yield,
+                "require_all_navs": require_all_navs,
+                "require_fx_same_day": require_fx_same_day,
+                "base_date_for_normalization": str(base_date.date()),
+            }
+            return pd.DataFrame(columns=SERIES_ORDER), meta, coverage
+
+        if anchor_ts not in out.index:
+            coverage["no_anchor"] = True
+            coverage["anchor_required_date"] = anchor_ts.date()
+            coverage["missing_anchor_series"] = ["NAV/FX coverage missing for anchor date"]
             meta = {
                 "tr_yearly_yield": tr_yearly_yield,
                 "require_all_navs": require_all_navs,
@@ -341,5 +387,6 @@ def compute_outputs(
     }
 
     return out, meta, coverage
+
 
 
