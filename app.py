@@ -586,14 +586,20 @@ with SessionLocal() as session:
 
         # Deterministic anchor: the day before the requested start date.
         # The engine will run only if published/backfilled history contains ALL series on this anchor date.
-        anchor_date = date_from - dt.timedelta(days=1)
+        anchor_required = date_from - dt.timedelta(days=1)
+
+        # Anchor cutoff (<= D-1): the engine will choose the latest published day on/before this cutoff
+        # where all series exist (handles weekends/holidays). If none exists, it will compute nothing.
         st.info(
-            f"{t('calc_anchor', 'Required anchor date (D-1)')}: {anchor_date:%Y-%m-%d}. "
-            f"{t('calc_anchor_rule', 'If published history is missing this date for any series, nothing will be calculated.')}"
+            f"{t('calc_anchor', 'Anchor cutoff (<= D-1)')}: {anchor_required:%Y-%m-%d}. "
+            f"{t('calc_anchor_rule', 'The engine will use the latest published date on or before this cutoff where all series exist; otherwise nothing will be calculated.')}"
         )
 
         if st.button(t("calc_run", "Run calculation")):
-            published_long = _load_published(session, anchor_date, anchor_date)
+            # Load a small window of published history up to the cutoff so compute_outputs can pick the best anchor.
+            pub_start = anchor_required - dt.timedelta(days=60)
+            published_long = _load_published(session, pub_start, anchor_required)
+
             out_df, meta, coverage = compute_outputs(
                 fx_df=fx_df,
                 nav_df=nav_df,
@@ -830,6 +836,7 @@ with SessionLocal() as session:
                 st.success(
                     f"{t('backfill_upserted', 'Upserted rows into published_rates')}: {n:,}"
                 )
+
 
 
 
