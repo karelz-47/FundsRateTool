@@ -587,7 +587,7 @@ with SessionLocal() as session:
 
         # Deterministic anchor: D-1 of selected start
         anchor_date = (date_from - dt.timedelta(days=1))
-        st.info(f\"Anchor date (D-1): {anchor_date:%Y-%m-%d} (must exist in published history)\")
+        st.info(f"Anchor date (D-1): {anchor_date:%Y-%m-%d} (must exist in published history)")
 
         # Watermark is informational only: we allow recalculation before/through watermark for calibration.
         if wm and date_to <= wm:
@@ -844,6 +844,7 @@ if st.button(t("calc_run", "Run calculation")):
                 st.success(
                     f"{t('backfill_upserted', 'Upserted rows into published_rates')}: {n:,}"
                 )
+
 
 
 
