@@ -127,7 +127,7 @@ TR_HUF_BASE_DATE = date(2014, 10, 1)
 TR_EUR_BASE_DATE = date(2015, 6, 1)
 TR_EUR_BASE_FX_FALLBACK = 313.03  # used if FX missing for 2015-06-01
 
-ROUND_DECIMALS = 5
+ROUND_DECIMALS = 8
 
 # config.py
 
