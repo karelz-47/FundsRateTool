@@ -18,6 +18,7 @@ from config import (
     GUARANTEED_SERIES,
     DEFAULT_CASH_PCT,
     CASH_PCT_BY_SERIES,
+    NORMALIZATION_RATE_HUF,
 )
 
 
@@ -229,21 +230,27 @@ def compute_outputs(
         else:
             raise ValueError(f"Unsupported currency for {isin}: {ccy}")
 
-    # Normalize each fund to 1.0 at its first available valid date (prevents NaN poisoning when some ISINs start later)
+    # Normalize each fund using a fixed historical normalization rate (HUF per unit).
+    # Legacy XLS: VALUE(t) = NAV_HUF(t) / NORMALIZATION_RATE_HUF[isin].
     base_date = valid_dates.min()
-    base_vals = {}
     idx_funds = pd.DataFrame(index=valid_dates, columns=nav_huf.columns, dtype=float)
 
     for isin in nav_huf.columns:
-        s = nav_huf[isin]
-        first_valid = s.first_valid_index()
-        if first_valid is None:
-            idx_funds[isin] = np.nan
-            continue
-        base_val = float(s.loc[first_valid])
-        base_vals[isin] = base_val
-        idx_funds[isin] = s / base_val
+        norm_rate = NORMALIZATION_RATE_HUF.get(isin)
 
+        if norm_rate is None:
+            # Fallback: keeps the app running, but WILL NOT match OLD_XLS unless you provide norm rates.
+            first_valid = nav_huf[isin].first_valid_index()
+            if first_valid is None:
+                idx_funds[isin] = np.nan
+                continue
+            norm_rate = float(nav_huf.at[first_valid, isin])
+            coverage.setdefault("normalization_fallbacks", {})[isin] = {
+                "used_date": str(pd.Timestamp(first_valid).date()),
+                "used_norm_rate_huf": norm_rate,
+            }
+
+        idx_funds[isin] = nav_huf[isin] / float(norm_rate)
 
     # Portfolios (weighted sums of fund indices)
     base = pd.DataFrame(index=valid_dates, dtype=float)
@@ -262,47 +269,11 @@ def compute_outputs(
             s = s + float(w) * idx_funds[isin]
         base[port_name] = s
 
-    # Cash allocation: split into risky component following 'base' and cash component accruing at TR daily yield.
+    # Fund Rate (FR) convention (legacy XLS parity):
+    #   FR(t) = FR(t-1) + (VALUE(t) - VALUE(t-1)) * (1 - cash_pct) + cash_accrual
+    # Anchoring is done by setting FR(anchor) = published/backfilled FR(anchor), then chaining forward.
     out = pd.DataFrame(index=valid_dates, columns=base.columns, dtype=float)
 
-    # Start from base levels. If some series start later (NaN at t0), we will initialize them when they first appear.
-    out.iloc[0] = base.iloc[0]
-
-    for i in range(1, len(valid_dates)):
-        t = valid_dates[i]
-        t0 = valid_dates[i - 1]
-        delta_days = (t.date() - t0.date()).days
-        if delta_days <= 0:
-            delta_days = 1
-        cash_growth = (1.0 + dy) ** float(delta_days)
-
-        for col in base.columns:
-            prev = out.at[t0, col]
-
-            # If we don't have a previous value yet (series starts later), initialize from base when available.
-            if pd.isna(prev):
-                out.at[t, col] = base.at[t, col]
-                continue
-
-            cash_pct = cash_pct_for_series(col)
-
-            b0 = base.at[t0, col]
-            b1 = base.at[t, col]
-
-            # Risk ratio: if base missing, treat as flat (1.0) for that step.
-            if pd.isna(b0) or pd.isna(b1) or float(b0) == 0.0:
-                risk_ratio = 1.0
-            else:
-                risk_ratio = float(b1) / float(b0)
-
-            risk_part = float(prev) * (1.0 - cash_pct) * risk_ratio
-            cash_part = float(prev) * cash_pct * cash_growth
-            out.at[t, col] = risk_part + cash_part
-
-
-    # If published history is provided, scale (chain) outputs to the latest anchor date
-    # where ALL series have published values AND the date exists in our computed valid dates.
-    # Strict behavior: if no such anchor exists, return empty output (do not fabricate 1.0 series).
     if published_df_long is not None and not published_df_long.empty:
         pub = published_df_long.copy()
         required_cols = {"rate_date", "series_code", "value"}
@@ -312,28 +283,84 @@ def compute_outputs(
         pub["rate_date"] = pd.to_datetime(pub["rate_date"]).dt.normalize()
         pub_w = pub.pivot_table(index="rate_date", columns="series_code", values="value", aggfunc="last")
 
-        # Track published coverage for diagnostics
-        if len(pub_w.index) > 0:
-            coverage["published_max_date"] = pub_w.index.max().date()
-        else:
-            coverage["published_max_date"] = None
+        coverage["published_max_date"] = pub_w.index.max().date() if len(pub_w.index) else None
 
-        # Required anchor date is D-1 of the requested start date.
-        # We require:
-        #   - published value exists for ALL output series on that anchor date
-        #   - anchor date exists in computed valid dates (NAV+FX coverage)
         if anchor_required is None:
             raise ValueError("date_from is required for strict anchoring")
 
-        anchor_ts = anchor_ts_selected if "anchor_ts_selected" in locals() and anchor_ts_selected is not None else anchor_required
-        coverage["anchor_required_date"] = anchor_required.date() if anchor_required is not None else None
-        coverage["anchor_selected_date"] = anchor_ts.date() if anchor_ts is not None else None
+        anchor_required_ts = anchor_required
+        coverage["anchor_required_date"] = anchor_required_ts.date()
 
+        # Anchor per series: latest date <= anchor_required where BOTH published FR and VALUE exist
+        common_dates = sorted(set(base.index).intersection(set(pub_w.index)))
+        common_dates = [d for d in common_dates if d <= anchor_required_ts]
 
-        if anchor_ts not in pub_w.index:
+        anchor_by_series = {}
+        for col in base.columns:
+            chosen = None
+            for cand in reversed(common_dates):
+                pub_val = pub_w.at[cand, col] if (col in pub_w.columns and cand in pub_w.index) else np.nan
+                val = base.at[cand, col] if (cand in base.index and col in base.columns) else np.nan
+                if pd.isna(pub_val) or pd.isna(val):
+                    continue
+                chosen = cand
+                out.at[cand, col] = float(pub_val)
+                anchor_by_series[col] = cand
+                break
+
+        missing_anchor = [c for c in base.columns if c not in anchor_by_series]
+        if missing_anchor:
             coverage["no_anchor"] = True
-            coverage["anchor_required_date"] = anchor_ts.date()
-            coverage["missing_anchor_series"] = out.columns.tolist()
+            coverage["missing_anchor_series"] = missing_anchor
+            meta = {
+                "tr_yearly_yield": tr_yearly_yield,
+                "require_all_navs": require_all_navs,
+                "require_fx_same_day": require_fx_same_day,
+                "base_date_for_normalization": str(base_date.date()),
+            }
+            return pd.DataFrame(columns=SERIES_ORDER), meta, coverage
+
+        # Chain forward using VALUE deltas
+        for col, a in anchor_by_series.items():
+            cash_pct = get_cash_pct(col)
+            ai = base.index.get_loc(a)
+            for i in range(ai + 1, len(valid_dates)):
+                t = valid_dates[i]
+                t0 = valid_dates[i - 1]
+
+                prev_fr = out.at[t0, col]
+                if pd.isna(prev_fr):
+                    continue
+
+                v0 = base.at[t0, col]
+                v = base.at[t, col]
+                if pd.isna(v0) or pd.isna(v):
+                    out.at[t, col] = np.nan
+                    continue
+
+                delta_days = (t.date() - t0.date()).days
+                if delta_days <= 0:
+                    delta_days = 1
+                cash_growth = (1.0 + dy) ** float(delta_days)
+
+                fr = float(prev_fr) + (float(v) - float(v0)) * (1.0 - cash_pct)
+
+                # Interest on the cash portion (on prior FR level)
+                if cash_pct > 0.0:
+                    fr += float(prev_fr) * cash_pct * (cash_growth - 1.0)
+
+                out.at[t, col] = fr
+
+        coverage["anchored"] = True
+        coverage["anchor_by_series"] = {k: v.date().isoformat() for k, v in anchor_by_series.items()}
+
+    else:
+        # No published history: fall back to VALUE directly
+        out = base.copy()
+        coverage["anchored"] = False
+        coverage["anchor_date"] = None
+        coverage["published_max_date"] = None
+   
             meta = {
                 "tr_yearly_yield": tr_yearly_yield,
                 "require_all_navs": require_all_navs,
@@ -413,6 +440,7 @@ def compute_outputs(
     }
 
     return out, meta, coverage
+
 
 
 
