@@ -72,6 +72,20 @@ PORTFOLIO_WEIGHTS = {
     },
 }
 
+# Historical normalization rate per series/ISIN (HUF value of 1 fund unit on the normalization date).
+# Legacy XLS: VALUE(t) = NAV_HUF(t) / NORMALIZATION_RATE_HUF[isin]
+NORMALIZATION_RATE_HUF: Dict[str, float] = {
+    "HU0000701685": 4.11132000,
+    "LU0122614208": 7967.76681000,
+    "LU0605515377": 5044.21680000,
+    "LU0862449690": 27660.75060000,
+    "HU0000710116": 1.41580000,
+    "LU0740858492": 39413.28720000,
+    "LU1088281024": 3082.00000000,
+    "LU0210535034": 6457.99590000,
+    "LU0329678410": 6320.53800000,
+}
+
 # Export header rows (3-row template)
 HEADER_ROW1 = [
     None, None, None,
@@ -157,5 +171,6 @@ CASH_PCT_BY_SERIES = {
     # Everything else (including Templeton, HOLD/HU funds, JPM LatAm) effectively 0.00 by default,
     # and guaranteed funds are hard-forced to 0.00 via GUARANTEED_SERIES_CODES.
 }
+
 
 
