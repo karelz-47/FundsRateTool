@@ -297,13 +297,11 @@ def compute_outputs(
 
         anchor_by_series = {}
         for col in base.columns:
-            chosen = None
             for cand in reversed(common_dates):
                 pub_val = pub_w.at[cand, col] if (col in pub_w.columns and cand in pub_w.index) else np.nan
                 val = base.at[cand, col] if (cand in base.index and col in base.columns) else np.nan
                 if pd.isna(pub_val) or pd.isna(val):
                     continue
-                chosen = cand
                 out.at[cand, col] = float(pub_val)
                 anchor_by_series[col] = cand
                 break
@@ -322,7 +320,7 @@ def compute_outputs(
 
         # Chain forward using VALUE deltas
         for col, a in anchor_by_series.items():
-            cash_pct = get_cash_pct(col)
+            cash_pct = cash_pct_for_series(col)
             ai = base.index.get_loc(a)
             for i in range(ai + 1, len(valid_dates)):
                 t = valid_dates[i]
@@ -355,62 +353,22 @@ def compute_outputs(
         coverage["anchor_by_series"] = {k: v.date().isoformat() for k, v in anchor_by_series.items()}
 
     else:
-        # No published history: fall back to VALUE directly
+        # No published history: fall back to VALUE directly (still slice to requested window later)
         out = base.copy()
-        coverage["anchored"] = False
-        coverage["anchor_date"] = None
-        coverage["published_max_date"] = None
-   
-            meta = {
-                "tr_yearly_yield": tr_yearly_yield,
-                "require_all_navs": require_all_navs,
-                "require_fx_same_day": require_fx_same_day,
-                "base_date_for_normalization": str(base_date.date()),
-            }
-            return pd.DataFrame(columns=SERIES_ORDER), meta, coverage
-
-        missing = [c for c in out.columns if (c not in pub_w.columns) or pd.isna(pub_w.at[anchor_ts, c])]
-        if missing:
-            coverage["no_anchor"] = True
-            coverage["anchor_required_date"] = anchor_ts.date()
-            coverage["missing_anchor_series"] = missing
-            meta = {
-                "tr_yearly_yield": tr_yearly_yield,
-                "require_all_navs": require_all_navs,
-                "require_fx_same_day": require_fx_same_day,
-                "base_date_for_normalization": str(base_date.date()),
-            }
-            return pd.DataFrame(columns=SERIES_ORDER), meta, coverage
-
-        if anchor_ts not in out.index:
-            coverage["no_anchor"] = True
-            coverage["anchor_required_date"] = anchor_ts.date()
-            coverage["missing_anchor_series"] = ["NAV/FX coverage missing for anchor date"]
-            meta = {
-                "tr_yearly_yield": tr_yearly_yield,
-                "require_all_navs": require_all_navs,
-                "require_fx_same_day": require_fx_same_day,
-                "base_date_for_normalization": str(base_date.date()),
-            }
-            return pd.DataFrame(columns=SERIES_ORDER), meta, coverage
-
-        # Scale each series so that computed value on anchor date equals published value on anchor date
-        denom = out.loc[anchor_ts, out.columns]
-        if (denom == 0).any():
-            zeros = denom[denom == 0].index.tolist()
-            raise ValueError(f"Cannot anchor-scale on {anchor_ts.date()} because computed value is 0 for: {zeros}")
-
-        scales = pub_w.loc[anchor_ts, out.columns] / denom
-        out = out.mul(scales, axis=1)
-        coverage["anchored"] = True
-        coverage["anchor_date"] = anchor_ts.date()
-    else:
         coverage["anchored"] = False
         coverage["anchor_date"] = None
         coverage["published_max_date"] = None
         coverage["requested_date_from"] = str(date_from) if date_from else None
         coverage["requested_date_to"] = str(date_to) if date_to else None
-
+   
+    meta = {
+        "tr_yearly_yield": tr_yearly_yield,
+        "require_all_navs": require_all_navs,
+        "require_fx_same_day": require_fx_same_day,
+        "base_date_for_normalization": str(base_date.date()),
+    }
+    return pd.DataFrame(columns=SERIES_ORDER), meta, coverage
+        
         # Final slicing to requested window
     if req_start is not None:
         out = out[out.index >= req_start]
@@ -440,6 +398,7 @@ def compute_outputs(
     }
 
     return out, meta, coverage
+
 
 
 
