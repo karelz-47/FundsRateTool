@@ -360,16 +360,8 @@ def compute_outputs(
         coverage["published_max_date"] = None
         coverage["requested_date_from"] = str(date_from) if date_from else None
         coverage["requested_date_to"] = str(date_to) if date_to else None
-   
-    meta = {
-        "tr_yearly_yield": tr_yearly_yield,
-        "require_all_navs": require_all_navs,
-        "require_fx_same_day": require_fx_same_day,
-        "base_date_for_normalization": str(base_date.date()),
-    }
-    return pd.DataFrame(columns=SERIES_ORDER), meta, coverage
-        
-        # Final slicing to requested window
+           
+    # Final slicing to requested window
     if req_start is not None:
         out = out[out.index >= req_start]
     if req_end is not None:
@@ -398,9 +390,3 @@ def compute_outputs(
     }
 
     return out, meta, coverage
-
-
-
-
-
-
