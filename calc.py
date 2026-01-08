@@ -188,8 +188,19 @@ def compute_outputs(
         return pd.DataFrame(columns=SERIES_ORDER), {"tr_yearly_yield": tr_yearly_yield}, coverage
 
     # Filter to valid dates only
-    nav_w_valid = nav_w.loc[valid_dates].copy()
+    nav_w_valid = nav_w.loc[valid_dates].sort_index().copy()
+
+    # OLD_XLS TAB2 parity: NAV(t) = RAW_NAV(t) if exists else NAV(t-1)
+    nav_w_valid = nav_w_valid.ffill()
+
     fx_asof_valid = fx_asof.set_index("date").loc[valid_dates].copy()
+
+    # Diagnostics: where RAW_NAV was missing but NAV was carried forward
+    raw_missing = nav_w.loc[valid_dates].isna()
+    after_missing = nav_w_valid.isna()
+    carried = raw_missing & ~after_missing
+    coverage["nav_carried_forward_counts"] = carried.sum().to_dict()
+    coverage["nav_carried_forward_days"] = int(carried.any(axis=1).sum())
 
     # FX factors per date (Excel parity)
     fx_asof_valid["huf_per_eur"] = fx_asof_valid["huf_buy"]
@@ -390,3 +401,4 @@ def compute_outputs(
     }
 
     return out, meta, coverage
+
