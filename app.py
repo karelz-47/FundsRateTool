@@ -42,7 +42,7 @@ from fx_import import parse_tb_rates_from_csv_bytes, try_parse_date_from_filenam
 from nav_parser import parse_baha_paste
 from calc import compute_outputs
 from export import to_csv_bytes, to_xlsx_bytes
-from config import NAV_CURRENCY, SERIES_ORDER, TR_YEARLY_YIELD_DEFAULT
+from config import NAV_CURRENCY, SERIES_ORDER, TR_YEARLY_YIELD_DEFAULT, FUND_LABELS
 
 
 # =============================================================================
@@ -438,7 +438,12 @@ with SessionLocal() as session:
 
         pasted = st.text_area(t("nav_paste_label", "Paste email text here"), height=360)
 
-        # Parse
+        if "manual_nav_rows" not in st.session_state:
+            st.session_state["manual_nav_rows"] = [
+                {"isin": None, "nav_date": date.today(), "nav": None}
+            ]
+
+        
         # Parse
         if st.button(t("nav_parse_btn", "Parse NAVs")):
             try:
@@ -516,6 +521,140 @@ with SessionLocal() as session:
 
                 session.commit()
                 st.success(f"{t('nav_saved', 'Saved/updated NAV rows.')} ({saved})")
+        
+        st.divider()
+        st.markdown(f"### {t('nav_manual_title', 'Manual NAV entry')}")
+
+        with st.expander(t("nav_manual_exp", "Enter NAVs manually (when email is incomplete)"), expanded=True):
+            # Build ISIN dropdown labels
+            only_isins = sorted(set(NAV_CURRENCY.keys()))
+
+            def _label(isin: str) -> str:
+                nm = FUND_LABELS.get(isin, "")
+                return f"{isin} — {nm}" if nm else isin
+
+            isin_options = [""] + only_isins  # "" = not selected yet
+
+            # Render each row
+            for i, row in enumerate(st.session_state["manual_nav_rows"]):
+                c1, c2, c3, c4 = st.columns([3, 2, 2, 1])
+
+                with c1:
+                    current = row.get("isin") or ""
+                    sel = st.selectbox(
+                        t("nav_manual_isin", "ISIN – Fund name"),
+                        options=isin_options,
+                        index=isin_options.index(current) if current in isin_options else 0,
+                        format_func=lambda x: "" if x == "" else _label(x),
+                        key=f"manual_isin_{i}",
+                    )
+                    st.session_state["manual_nav_rows"][i]["isin"] = (sel or None)
+
+                    # Show currency (read-only) once ISIN chosen
+                    if sel:
+                        st.caption(f"{t('nav_currency', 'Currency')}: {NAV_CURRENCY.get(sel, 'N/A')}")
+
+                with c2:
+                    d = st.date_input(
+                        t("nav_manual_date", "NAV Date"),
+                        value=row.get("nav_date") or date.today(),
+                        key=f"manual_date_{i}",
+                    )
+                    st.session_state["manual_nav_rows"][i]["nav_date"] = d
+
+                with c3:
+                    v = st.number_input(
+                        t("nav_manual_nav", "NAV"),
+                        value=float(row["nav"]) if row.get("nav") not in (None, "") else 0.0,
+                        min_value=0.0,
+                        step=0.0001,
+                        format="%.8f",
+                        key=f"manual_nav_{i}",
+                    )
+                    # Treat 0.0 as "not provided" only if user left it untouched and ISIN empty; otherwise allow 0.0 if you want.
+                    st.session_state["manual_nav_rows"][i]["nav"] = float(v)
+
+                with c4:
+                    if st.button(t("nav_manual_remove", "Remove"), key=f"manual_remove_{i}"):
+                        st.session_state["manual_nav_rows"].pop(i)
+                        st.rerun()
+
+            col_add, col_save = st.columns([1, 2])
+            with col_add:
+                if st.button(t("nav_manual_add", "Add new NAV")):
+                    st.session_state["manual_nav_rows"].append({"isin": None, "nav_date": date.today(), "nav": None})
+                    st.rerun()
+
+            with col_save:
+                if st.button(t("nav_manual_save", "Save NAVs")):
+                    rows = st.session_state["manual_nav_rows"]
+
+                    # Basic validation
+                    errors = []
+                    for idx, r in enumerate(rows, start=1):
+                        if not r.get("isin"):
+                            errors.append(f"Row {idx}: ISIN is missing.")
+                        if not r.get("nav_date"):
+                            errors.append(f"Row {idx}: NAV date is missing.")
+                        # nav must be > 0 in typical NAV logic; adjust if 0 allowed
+                        if r.get("nav") is None or float(r.get("nav")) <= 0:
+                            errors.append(f"Row {idx}: NAV must be > 0.")
+
+                        if r.get("isin") and r["isin"] not in NAV_CURRENCY:
+                            errors.append(f"Row {idx}: ISIN not recognized in NAV_CURRENCY.")
+
+                    if errors:
+                        st.error(t("nav_manual_errors", "Please fix:") + "\n- " + "\n- ".join(errors))
+                    else:
+                        saved = 0
+                        # Hash to trace manual payload (optional)
+                        payload_str = json.dumps(rows, sort_keys=True, default=str)
+                        raw_hash = hashlib.sha256(("manual:" + payload_str).encode("utf-8")).hexdigest()
+
+                        for r in rows:
+                            isin = r["isin"]
+                            nav_date = r["nav_date"]
+                            nav_val = float(r["nav"])
+                            currency = str(NAV_CURRENCY.get(isin, ""))  # from config
+                            fund_name = FUND_LABELS.get(isin)
+        
+                            obj = (
+                                session.execute(
+                                    select(FundNav)
+                                    .where(FundNav.nav_date == nav_date)
+                                    .where(FundNav.isin == isin)
+                                )
+                                .scalar_one_or_none()
+                            )
+
+                            if obj is None:
+                                obj = FundNav(
+                                    nav_date=nav_date,
+                                    isin=isin,
+                                    nav=nav_val,
+                                    currency=currency,
+                                    fund_name=fund_name,
+                                    source_email_date=None,
+                                    raw_hash=raw_hash,
+                                )
+                                session.add(obj)
+                            else:
+                                obj.nav = nav_val
+                                obj.currency = currency
+                                if fund_name:
+                                    obj.fund_name = fund_name
+                                obj.source_email_date = None
+                                obj.raw_hash = raw_hash
+
+                            saved += 1
+
+                        session.commit()
+                        st.success(f"{t('nav_manual_saved', 'Saved/updated NAV rows.')} ({saved})")
+
+                        # Optionally reset to a single empty row
+                        st.session_state["manual_nav_rows"] = [{"isin": None, "nav_date": date.today(), "nav": None}]
+                        st.rerun()
+        
         st.divider()
         st.markdown(f"### {t('nav_rows_db', 'NAV rows stored in DB')}")
 
@@ -836,6 +975,7 @@ with SessionLocal() as session:
                 st.success(
                     f"{t('backfill_upserted', 'Upserted rows into published_rates')}: {n:,}"
                 )
+
 
 
 
