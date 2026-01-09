@@ -22,6 +22,19 @@ SERIES_ORDER = [
     "DYNAMIC",
 ]
 
+# Manual NAV entry: predefined labels
+FUND_LABELS: Dict[str, str] = {
+    "LU0122614208": "Templeton Global Bond Fund - N (acc) USD",
+    "LU0210535034": "JPMorgan Funds - Latin America Equity Fund A (acc) - USD",
+    "LU0329678410": "Fidelity Funds - Emerging Asia Fund A-ACC-Euro",
+    "LU0605515377": "Fidelity Funds - Global Dividend Fund A-ACC-Euro (hedged)",
+    "LU0740858492": "JPMorgan Investment Funds - Global Income Fund D (acc) - EUR",
+    "LU0862449690": "JPMorgan Funds - Emerging Markets Dividend Fund A (acc) - EUR",
+    "LU1088281024": "Fidelity Funds - Global Multi Asset Income Fund A-ACC-HUF (hedged)",
+    "HU0000701685": "TR_HUF (or underlying reference)",
+    "HU0000710116": "TR_EUR (or underlying reference)",
+}
+
 # NAV currencies (as per your workbook)
 NAV_CURRENCY: Dict[str, str] = {
     "HU0000701685": "HUF",
@@ -171,6 +184,7 @@ CASH_PCT_BY_SERIES = {
     # Everything else (including Templeton, HOLD/HU funds, JPM LatAm) effectively 0.00 by default,
     # and guaranteed funds are hard-forced to 0.00 via GUARANTEED_SERIES_CODES.
 }
+
 
 
 
