@@ -119,24 +119,37 @@ def require_login():
     if st.session_state.get("auth_ok"):
         return
 
-    st.title("Login")
-    username = st.text_input("Username")
-    password = st.text_input("Password", type="password")
+    # Optional: language selection on login screen (best UX)
+    # Keeps behavior consistent with your main language switcher.
+    st.selectbox(
+        t("lang", "Language"),
+        ["EN", "SK", "HU"],
+        index=["EN", "SK", "HU"].index(st.session_state.get("lang", "EN")),
+        key="login_lang_choice",
+    )
+    if st.session_state["login_lang_choice"] != st.session_state.get("lang", "EN"):
+        st.session_state["lang"] = st.session_state["login_lang_choice"]
+        _init_i18n()
+        st.rerun()
+    
+    st.title(t("auth_login_title", "Login"))
+    username = st.text_input(t("auth_username", "Username"))
+    password = st.text_input(t("auth_password", "Password"), type="password")
 
-    if st.button("Sign in", type="primary"):
+    if st.button(t("auth_sign_in", "Sign in"), type="primary"):
         if _verify_user(username.strip(), password, cfg):
             st.session_state["auth_ok"] = True
             st.session_state["auth_user"] = username.strip()
             st.rerun()
         else:
-            st.error("Invalid username or password.")
+            st.error(t("auth_invalid", "Invalid username or password."))
     st.stop()
 
 def auth_sidebar_controls():
     # Optional: small indicator + logout
     if st.session_state.get("auth_ok"):
-        st.sidebar.caption(f"Signed in as: {st.session_state.get('auth_user','')}")
-        if st.sidebar.button("Log out"):
+        st.sidebar.caption(t("auth_signed_in_as", "Signed in as: {user}").format(user=u))
+        if st.sidebar.button(t("auth_logout", "Log out")):
             st.session_state.pop("auth_ok", None)
             st.session_state.pop("auth_user", None)
             st.rerun()
@@ -230,10 +243,10 @@ st.set_page_config(
     layout="wide",
 )
 
+_init_i18n()
 require_login()
 auth_sidebar_controls()
 
-_init_i18n()
 
 
 # =============================================================================
@@ -1107,6 +1120,7 @@ with SessionLocal() as session:
                 st.success(
                     f"{t('backfill_upserted', 'Upserted rows into published_rates')}: {n:,}"
                 )
+
 
 
 
