@@ -32,7 +32,11 @@
   "nav_rows_db": "NAV sorok az adatbázisban",
   "nav_rows_db_empty": "Még nincs NAV adat elmentve az adatbázisban.",
   "nav_expand_all": "Összes nap kibontása",
-
+  "nav_err_isin_missing": "{row}. sor: hiányzik az ISIN.",
+  "nav_err_date_missing": "{row}. sor: hiányzik a NAV dátuma.",
+  "nav_err_nav_leq0": "{row}. sor: a NAV értéknek > 0-nak kell lennie.",
+  "nav_err_isin_unknown": "{row}. sor: az ISIN nem szerepel a NAV_CURRENCY térképezésben.",
+  
   "cash_title": "Cash allokáció (0..1) sorozatonként és dátumonként (opcionális)",
   "cash_caption": "Excel delta-damping: out_t = out_{t-1} + (base_t - base_{t-1})*(1-cash_pct). Ha nem használja, maradjon 0.",
   "cash_enter_nav_first": "Először rögzítse a NAV-okat.",
@@ -58,6 +62,8 @@
   "export_title": "Export",
   "export_csv": "CSV letöltése",
   "export_xlsx": "XLSX letöltése",
+  "export_apollon_csv": "CSV letöltése Apollon részére",
+
   "audit_save_title": "Futás mentése (audit)",
   "audit_save_btn": "Futás mentése DB-be",
   "audit_saved": "calc_run mentve"
