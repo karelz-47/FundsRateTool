@@ -4,6 +4,14 @@
   "lang": "Language",
   "date": "Date",
   "rows": "Rows",
+
+  "auth_login_title": "Login",
+  "auth_username": "Username",
+  "auth_password": "Password",
+  "auth_sign_in": "Sign in",
+  "auth_invalid": "Invalid username or password.",
+  "auth_signed_in_as": "Signed in as: {user}",
+  "auth_logout": "Log out",
   
   "menu": "Menu",
   "menu_fx": "1) Import FX (TB CSV)",
