@@ -625,15 +625,15 @@ with SessionLocal() as session:
                     errors = []
                     for idx, r in enumerate(rows, start=1):
                         if not r.get("isin"):
-                            errors.append(f"Row {idx}: ISIN is missing.")
+                            errors.append(t("nav_err_isin_missing", "Row {row}: ISIN is missing.").format(row=idx))
                         if not r.get("nav_date"):
-                            errors.append(f"Row {idx}: NAV date is missing.")
+                            errors.append(t("nav_err_date_missing", "Row {row}: NAV date is missing.").format(row=idx))
                         # nav must be > 0 in typical NAV logic; adjust if 0 allowed
                         if r.get("nav") is None or float(r.get("nav")) <= 0:
-                            errors.append(f"Row {idx}: NAV must be > 0.")
+                            errors.append(t("nav_err_nav_leq0", "Row {row}: NAV must be > 0.").format(row=idx))
 
                         if r.get("isin") and r["isin"] not in NAV_CURRENCY:
-                            errors.append(f"Row {idx}: ISIN not recognized in NAV_CURRENCY.")
+                            errors.append(t("nav_err_isin_unknown", "Row {row}: ISIN not recognized in NAV_CURRENCY.").format(row=idx))
 
                     if errors:
                         st.error(t("nav_manual_errors", "Please fix:") + "\n- " + "\n- ".join(errors))
@@ -865,7 +865,7 @@ with SessionLocal() as session:
             apollon_name = f"FundRates_HUFunds_{d_from:%d%m%y}-{d_to:%d%m%y}.csv"
 
             st.download_button(
-                "Download CSV for Apollon",
+                t("export_apollon_csv", "Download CSV for Apollon"),
                 data=to_apollon_csv_bytes(out_f),
                 file_name=apollon_name,
                 mime="text/csv",
@@ -991,10 +991,11 @@ with SessionLocal() as session:
             out = []
             for r in rows:
                 d = json.loads(r.output_json)
-                d["Date"] = r.calc_date
+                date_col = t("date", "Date")
+                d[date_col] = r.calc_date
                 out.append(d)
 
-            df = pd.DataFrame(out).sort_values("Date") if out else pd.DataFrame()
+            df = pd.DataFrame(out).sort_values(date_col) if out else pd.DataFrame()
             st.dataframe(df, use_container_width=True)
 
     # -------------------------------------------------------------------------
@@ -1019,6 +1020,7 @@ with SessionLocal() as session:
                 st.success(
                     f"{t('backfill_upserted', 'Upserted rows into published_rates')}: {n:,}"
                 )
+
 
 
 
