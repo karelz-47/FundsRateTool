@@ -148,6 +148,7 @@ def require_login():
 def auth_sidebar_controls():
     # Optional: small indicator + logout
     if st.session_state.get("auth_ok"):
+        u = st.session_state.get("auth_user", "")  # define first
         st.sidebar.caption(t("auth_signed_in_as", "Signed in as: {user}").format(user=u))
         if st.sidebar.button(t("auth_logout", "Log out")):
             st.session_state.pop("auth_ok", None)
@@ -1120,6 +1121,7 @@ with SessionLocal() as session:
                 st.success(
                     f"{t('backfill_upserted', 'Upserted rows into published_rates')}: {n:,}"
                 )
+
 
 
 
