@@ -354,8 +354,9 @@ def compute_outputs(
 
                 fr = float(prev_fr) + (float(v) - float(v0)) * (1.0 - cash_pct)
 
-                # Interest on the cash portion (on prior FR level)
-                if cash_pct > 0.0:
+                # Interest on the cash portion ONLY for TR series (TR_HUF, TR_EUR)
+                if cash_pct > 0.0 and col in ("TR_HUF", "TR_EUR"):
+                    cash_growth = (1.0 + dy) ** float(delta_days)
                     fr += float(prev_fr) * cash_pct * (cash_growth - 1.0)
 
                 out.at[t, col] = fr
@@ -401,4 +402,5 @@ def compute_outputs(
     }
 
     return out, meta, coverage
+
 
