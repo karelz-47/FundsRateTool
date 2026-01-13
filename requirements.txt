@@ -6,3 +6,5 @@ sqlalchemy>=2.0
 psycopg[binary]>=3.1
 openpyxl>=3.1
 xlsxwriter>=3.2
+PyYAML>=6.0
+passlib[bcrypt]>=1.7.4
