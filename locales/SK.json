@@ -32,6 +32,10 @@
   "nav_rows_db": "NAV riadky v DB",
   "nav_rows_db_empty": "V databáze zatiaľ nie sú uložené žiadne NAV údaje.",
   "nav_expand_all": "Rozbaliť všetky dni",
+  "nav_err_isin_missing": "Riadok {row}: chýba ISIN.",
+  "nav_err_date_missing": "Riadok {row}: chýba dátum NAV.",
+  "nav_err_nav_leq0": "Riadok {row}: NAV musí byť > 0.",
+  "nav_err_isin_unknown": "Riadok {row}: ISIN nie je rozpoznaný v NAV_CURRENCY.",
 
   "cash_title": "Cash alokácia (0..1) na sériu a dátum (voliteľné)",
   "cash_caption": "Zodpovedá Excel delta-damping: out_t = out_{t-1} + (base_t - base_{t-1})*(1-cash_pct). Ak nepoužívate, nechajte 0.",
@@ -60,6 +64,8 @@
   "export_title": "Export",
   "export_csv": "Stiahnuť CSV",
   "export_xlsx": "Stiahnuť XLSX",
+  "export_apollon_csv": "Stiahnuť CSV pre Apollon",
+
   "audit_save_title": "Uložiť beh (audit)",
   "audit_save_btn": "Uložiť beh do DB",
   "audit_saved": "Uložený calc_run"
