@@ -32,6 +32,10 @@
   "nav_rows_db": "NAV rows stored in DB",
   "nav_rows_db_empty": "No NAV rows stored in DB yet.",
   "nav_expand_all": "Expand all days",
+  "nav_err_isin_missing": "Row {row}: ISIN is missing.",
+  "nav_err_date_missing": "Row {row}: NAV date is missing.",
+  "nav_err_nav_leq0": "Row {row}: NAV must be > 0.",
+  "nav_err_isin_unknown": "Row {row}: ISIN not recognized in NAV_CURRENCY.",
 
   "calc_title": "Calculate outputs and export",
   "calc_tr_yield": "TR yearly yield",
@@ -54,6 +58,7 @@
   "export_title": "Export",
   "export_csv": "Download CSV",
   "export_xlsx": "Download XLSX",
+  "export_apollon_csv": "Download CSV for Apollon",
   
   "audit_save_title": "Persist this run (audit)",
   "audit_save_btn": "Save calculation run to DB",
