@@ -35,6 +35,19 @@ FUND_LABELS: Dict[str, str] = {
     "HU0000710116": "TR_EUR (or underlying reference)",
 }
 
+# Apollon export mapping (ISIN -> Fund Code)
+APOLLON_FUND_CODE_BY_ISIN = {
+    "HU0000701685": "QAlphaShorttermIFund",
+    "LU0122614208": "QAlphaGlobalBondIFund",
+    "LU0605515377": "QAlphaGlobalDevelopedIFund",
+    "LU0862449690": "QAlphaGlobalEmergingIFund",
+    "HU0000710116": "QAlphaAbsoluteIFund",
+    "LU0740858492": "QAlphaGlobalIncomeIFund",
+    "LU1088281024": "QAlphaMixedIFund",
+    "LU0210535034": "QAlphaLatinIFund",
+    "LU0329678410": "QAlphaAsiaIFund",
+}
+
 # NAV currencies (as per your workbook)
 NAV_CURRENCY: Dict[str, str] = {
     "HU0000701685": "HUF",
@@ -184,6 +197,7 @@ CASH_PCT_BY_SERIES = {
     # Everything else (including Templeton, HOLD/HU funds, JPM LatAm) effectively 0.00 by default,
     # and guaranteed funds are hard-forced to 0.00 via GUARANTEED_SERIES_CODES.
 }
+
 
 
 
