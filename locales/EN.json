@@ -2,6 +2,8 @@
   "app_title": "Fund Rates Tool",
   "app_subtitle": "FX + NAV ingestion, audited calculation, XLS/CSV export",
   "lang": "Language",
+  "date": "Date",
+  "rows": "Rows",
   
   "menu": "Menu",
   "menu_fx": "1) Import FX (TB CSV)",
@@ -36,7 +38,18 @@
   "nav_err_nav_leq0": "Row {row}: NAV must be > 0.",
   "nav_err_isin_unknown": "Row {row}: ISIN not recognized in NAV_CURRENCY.",
   "nav_unknown_isins": "Unknown ISINs (not in NAV_CURRENCY mapping):",
-
+  "nav_currency": "Currency",
+  "nav_manual_title": "Manual NAV entry",
+  "nav_manual_exp": "Enter NAVs manually (when email is incomplete)",
+  "nav_manual_add": "Add new NAV",
+  "nav_manual_remove": "Remove",
+  "nav_manual_isin": "ISIN – Fund name",
+  "nav_manual_date": "NAV Date",
+  "nav_manual_nav": "NAV",
+  "nav_manual_errors": "Please fix:",
+  "nav_manual_save": "Save NAVs",
+  "nav_manual_saved": "Saved/updated NAV rows.",
+  
   "calc_title": "Calculate outputs and export",
   "calc_tr_yield": "TR yearly yield",
   "calc_require_all_navs": "Require all 9 NAVs for a date",
@@ -55,7 +68,9 @@
   "calc_publish_btn": "Save computed outputs after watermark to published history",
   "calc_publish_none": "Nothing new to save (all computed dates are <= watermark).",
   "calc_publish_saved": "Saved computed rows to published history:",
-  
+  "calc_anchor": "Anchor cutoff (<= D-1)",
+  "calc_anchor_rule": "The engine will use the latest published date on or before this cutoff where all series exist; otherwise nothing will be calculated.",
+
   "export_title": "Export",
   "export_csv": "Download CSV",
   "export_xlsx": "Download XLSX",
