@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+
 import base64
+import os
+import yaml
 import hashlib
 import json
 import re
@@ -10,6 +13,7 @@ import pandas as pd
 from datetime import date
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
+from passlib.context import CryptContext
 
 import pandas as pd
 import streamlit as st
@@ -46,7 +50,6 @@ from calc import compute_outputs
 from export import to_csv_bytes, to_xlsx_bytes
 from config import NAV_CURRENCY, SERIES_ORDER, TR_YEARLY_YIELD_DEFAULT, FUND_LABELS, ROUND_DECIMALS, APOLLON_FUND_CODE_BY_ISIN
 
-
 # =============================================================================
 # Paths / Assets
 # =============================================================================
@@ -55,6 +58,88 @@ BASE_DIR = Path(__file__).parent
 ASSETS_DIR = BASE_DIR / "assets"
 LOGO_BIG = ASSETS_DIR / "FundRatesTool_logo.png"
 LOGO_SMALL = ASSETS_DIR / "FundRatesTool_logo_small.png"
+
+# =============================================================================
+# Authentification
+# =============================================================================
+
+_pwd_ctx = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+def _load_auth_config():
+    """
+    Reads YAML from env var APP_CONFIG_YAML.
+
+    Example:
+    auth:
+      enabled: true
+      users:
+        user1:
+          password_hash: "$2b$12$..."
+        user2:
+          password_hash: "$2b$12$..."
+    """
+    raw = os.getenv("APP_CONFIG_YAML", "").strip()
+    if not raw:
+        return {"auth": {"enabled": False, "users": {}}}
+
+    try:
+        cfg = yaml.safe_load(raw) or {}
+    except Exception:
+        # Fail-safe: if YAML breaks, do NOT crash the app; just disable auth.
+        return {"auth": {"enabled": False, "users": {}}}
+
+    if "auth" not in cfg:
+        cfg["auth"] = {"enabled": False, "users": {}}
+    cfg["auth"].setdefault("enabled", False)
+    cfg["auth"].setdefault("users", {})
+    return cfg
+
+def _verify_user(username: str, password: str, cfg: dict) -> bool:
+    users = (cfg.get("auth") or {}).get("users") or {}
+    u = users.get(username)
+    if not u:
+        return False
+    ph = u.get("password_hash") if isinstance(u, dict) else None
+    if not ph:
+        return False
+    try:
+        return _pwd_ctx.verify(password, ph)
+    except Exception:
+        return False
+
+def require_login():
+    cfg = _load_auth_config()
+    enabled = bool((cfg.get("auth") or {}).get("enabled"))
+
+    # Fail-open by default to avoid accidental disruption.
+    # If you want fail-closed, set auth.enabled=true and ensure APP_CONFIG_YAML is valid.
+    if not enabled:
+        return
+
+    if st.session_state.get("auth_ok"):
+        return
+
+    st.title("Login")
+    username = st.text_input("Username")
+    password = st.text_input("Password", type="password")
+
+    if st.button("Sign in", type="primary"):
+        if _verify_user(username.strip(), password, cfg):
+            st.session_state["auth_ok"] = True
+            st.session_state["auth_user"] = username.strip()
+            st.rerun()
+        else:
+            st.error("Invalid username or password.")
+    st.stop()
+
+def auth_sidebar_controls():
+    # Optional: small indicator + logout
+    if st.session_state.get("auth_ok"):
+        st.sidebar.caption(f"Signed in as: {st.session_state.get('auth_user','')}")
+        if st.sidebar.button("Log out"):
+            st.session_state.pop("auth_ok", None)
+            st.session_state.pop("auth_user", None)
+            st.rerun()
 
 
 # =============================================================================
@@ -145,6 +230,9 @@ st.set_page_config(
     layout="wide",
 )
 
+require_login()
+auth_sidebar_controls()
+
 _init_i18n()
 
 
@@ -187,7 +275,6 @@ def _init():
 
 
 _init()
-
 
 # =============================================================================
 # Loaders
@@ -345,8 +432,6 @@ def to_apollon_csv_bytes(out_df) -> bytes:
 
     return buf.getvalue().encode("utf-8")
 
-
-
 # =============================================================================
 # Language switcher (works even if only EN.json exists)
 # =============================================================================
@@ -373,7 +458,7 @@ st.caption(t("app_subtitle", "FX + NAV ingestion, audited calculation, XLS/CSV e
 
 page_key = st.sidebar.radio(
     t("menu", "Menu"),
-    ["menu_fx", "menu_nav", "menu_calc", "menu_audit", "menu_backfill"],
+    ["menu_fx", "menu_nav", "menu_calc"],
     format_func=lambda k: t(k, k),
 )
     
@@ -883,36 +968,38 @@ with SessionLocal() as session:
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             )
 
-            st.subheader(t("audit_save_title", "Persist this run (audit)"))
-            if st.button(t("audit_save_btn", "Save calculation run to DB")):
-                payload = {
-                    "meta": meta,
-                    "filter_from": str(date_from),
-                    "filter_to": str(date_to),
-                    "fx_rows": int(len(fx_df)),
-                    "nav_rows": int(len(nav_df)),
-                    "valid_dates": coverage.get("valid_dates", []),
-                }
-                h = compute_input_hash(payload)
+            # Hidden for all users (per requirement): Audit runs / saving calc_run
+            if False:
+                st.subheader(t("audit_save_title", "Persist this run (audit)"))
+                if st.button(t("audit_save_btn", "Save calculation run to DB")):
+                    payload = {
+                        "meta": meta,
+                        "filter_from": str(date_from),
+                        "filter_to": str(date_to),
+                        "fx_rows": int(len(fx_df)),
+                        "nav_rows": int(len(nav_df)),
+                        "valid_dates": coverage.get("valid_dates", []),
+                    }
+                    h = compute_input_hash(payload)
+                    run = CalcRun(params_json=json.dumps(payload, sort_keys=True), input_hash=h)
+                    session.add(run)
+                    session.flush()
 
-                run = CalcRun(params_json=json.dumps(payload, sort_keys=True), input_hash=h)
-                session.add(run)
-                session.flush()
-
-                for idx, row in out_f.iterrows():
-                    session.add(
-                        CalcDaily(
-                            run_id=run.id,
-                            calc_date=idx.date(),
-                            output_json=json.dumps(
-                                {k: float(row[k]) for k in SERIES_ORDER if k in out_f.columns},
-                                sort_keys=True,
-                            ),
+                    for idx, row in out_f.iterrows():
+                        session.add(
+                            CalcDaily(
+                                run_id=run.id,
+                                calc_date=idx.date(),
+                                output_json=json.dumps(
+                                    {k: float(row[k]) for k in SERIES_ORDER if k in out_f.columns},
+                                    sort_keys=True,
+                                ),
+                            )
                         )
-                    )
 
-                session.commit()
-                st.success(
+                    session.commit()
+                    
+                    st.success(
                     f"{t('audit_saved', 'Saved calc_run')} id={run.id} ({len(out_f)} {t('rows', 'rows')})."
                 )
 
@@ -1020,6 +1107,7 @@ with SessionLocal() as session:
                 st.success(
                     f"{t('backfill_upserted', 'Upserted rows into published_rates')}: {n:,}"
                 )
+
 
 
 
