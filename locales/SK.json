@@ -4,6 +4,14 @@
   "lang": "Jazyk",
   "date": "Dátum",
   "rows": "Riadky",
+
+  "auth_login_title": "Prihlásenie",
+  "auth_username": "Používateľské meno",
+  "auth_password": "Heslo",
+  "auth_sign_in": "Prihlásiť sa",
+  "auth_invalid": "Nesprávne používateľské meno alebo heslo.",
+  "auth_signed_in_as": "Prihlásený ako: {user}",
+  "auth_logout": "Odhlásiť",
   
   "menu": "Menu",
   "menu_fx": "1) Import FX (TB CSV)",
