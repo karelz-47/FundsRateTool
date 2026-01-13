@@ -209,20 +209,21 @@ def compute_outputs(
     # TR series on valid dates
     dy = daily_yield_from_yearly(tr_yearly_yield)
 
-    day_diff_huf = (valid_dates.date - TR_HUF_BASE_DATE)
-    days_huf = np.array([d.days for d in day_diff_huf], dtype=float)
-    tr_huf = pd.Series((1.0 + dy) ** days_huf, index=valid_dates)
+    # 1) Both TR_HUF and TR_EUR use the SAME inception for day counting
+    day_diff = (valid_dates.date - TR_HUF_BASE_DATE)
+    days = np.array([d.days for d in day_diff], dtype=float)
 
-    day_diff_eur = (valid_dates.date - TR_EUR_BASE_DATE)
-    days_eur = np.array([d.days for d in day_diff_eur], dtype=float)
-    tr_eur_raw = (1.0 + dy) ** days_eur
+    tr_huf = pd.Series((1.0 + dy) ** days, index=valid_dates)
 
-    # base FX for TR_EUR normalization
-    base_fx = TR_EUR_BASE_FX_FALLBACK
+    # 2) TR_EUR = TR_HUF * FX(t) / FX(base)
+    # Use HUF MID for TR_EUR parity (deviza_stred_huf)
+    huf_per_eur_mid = fx_asof_valid["huf_mid"]
+
+    base_fx = float(TR_EUR_BASE_FX_FALLBACK)
     if TR_EUR_BASE_DATE in set(valid_dates.date.tolist()):
-        base_fx = float(fx_asof_valid.loc[pd.Timestamp(TR_EUR_BASE_DATE), "huf_per_eur"])
+       base_fx = float(huf_per_eur_mid.loc[pd.Timestamp(TR_EUR_BASE_DATE)])
 
-    tr_eur = pd.Series(tr_eur_raw, index=valid_dates) * (fx_asof_valid["huf_per_eur"] / float(base_fx))
+    tr_eur = tr_huf * (huf_per_eur_mid / base_fx)
 
     # Convert fund NAVs to HUF
     nav_huf = pd.DataFrame(index=valid_dates, columns=nav_w_valid.columns, dtype=float)
@@ -402,5 +403,6 @@ def compute_outputs(
     }
 
     return out, meta, coverage
+
 
 
