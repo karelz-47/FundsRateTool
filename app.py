@@ -337,7 +337,10 @@ def to_apollon_csv_bytes(out_df) -> bytes:
         for isin in isins:
             fund_code = APOLLON_FUND_CODE_BY_ISIN[isin]
             val = row.get(isin)
-            rate = "" if val is None or (hasattr(val, "__float__") and (val != val)) else f"{float(val):.{ROUND_DECIMALS}f}"
+            if val is None or (hasattr(val, "__float__") and (val != val)):
+                rate = ""
+            else:
+                rate = f"{float(val):.{ROUND_DECIMALS}f}".replace(".", ",")
             w.writerow([fund_code, d, rate, "I"])
 
     return buf.getvalue().encode("utf-8")
@@ -1016,6 +1019,7 @@ with SessionLocal() as session:
                 st.success(
                     f"{t('backfill_upserted', 'Upserted rows into published_rates')}: {n:,}"
                 )
+
 
 
 
