@@ -8,4 +8,4 @@ openpyxl>=3.1
 xlsxwriter>=3.2
 PyYAML>=6.0
 passlib[bcrypt]>=1.7.4
-bcrypt>=4.3.0
+bcrypt==3.2.2
