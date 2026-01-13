@@ -4,6 +4,8 @@ import base64
 import hashlib
 import json
 import re
+import csv
+import io
 import pandas as pd
 from datetime import date
 from pathlib import Path
@@ -42,7 +44,7 @@ from fx_import import parse_tb_rates_from_csv_bytes, try_parse_date_from_filenam
 from nav_parser import parse_baha_paste
 from calc import compute_outputs
 from export import to_csv_bytes, to_xlsx_bytes
-from config import NAV_CURRENCY, SERIES_ORDER, TR_YEARLY_YIELD_DEFAULT, FUND_LABELS
+from config import NAV_CURRENCY, SERIES_ORDER, TR_YEARLY_YIELD_DEFAULT, FUND_LABELS, ROUND_DECIMALS, APOLLON_FUND_CODE_BY_ISIN
 
 
 # =============================================================================
@@ -314,7 +316,34 @@ def _load_published(session, start: date, end: date) -> pd.DataFrame:
 def get_published_watermark(session):
     # returns datetime.date or None
     return session.execute(select(func.max(PublishedRate.rate_date))).scalar_one()
-    
+
+
+def to_apollon_csv_bytes(out_df) -> bytes:
+    """
+    Output format (semicolon-separated):
+    Fund Code;ValueDate;Rate;RateType
+    ValueDate: DD.MM.YYYY
+    RateType: always 'I'
+    """
+    buf = io.StringIO()
+    w = csv.writer(buf, delimiter=";")
+    w.writerow(["Fund Code", "ValueDate", "Rate", "RateType"])
+
+    # Ensure stable ISIN order
+    isins = list(APOLLON_FUND_CODE_BY_ISIN.keys())
+
+    for ts, row in out_df.iterrows():
+        d = ts.strftime("%d.%m.%Y")
+        for isin in isins:
+            fund_code = APOLLON_FUND_CODE_BY_ISIN[isin]
+            val = row.get(isin)
+            rate = "" if val is None or (hasattr(val, "__float__") and (val != val)) else f"{float(val):.{ROUND_DECIMALS}f}"
+            w.writerow([fund_code, d, rate, "I"])
+
+    return buf.getvalue().encode("utf-8")
+
+
+
 # =============================================================================
 # Language switcher (works even if only EN.json exists)
 # =============================================================================
@@ -826,6 +855,18 @@ with SessionLocal() as session:
             coverage = st.session_state.get("out_coverage", {})
 
             st.subheader(t("export_title", "Export"))
+            
+            # Apollon filename: FundRates_HUFunds_DATEFROM-DATETO.csv (DDMMYY)
+            d_from = out_f.index.min().date()
+            d_to = out_f.index.max().date()
+            apollon_name = f"FundRates_HUFunds_{d_from:%d%m%y}-{d_to:%d%m%y}.csv"
+
+            st.download_button(
+                "Download CSV for Apollon",
+                data=to_apollon_csv_bytes(out_f),
+                file_name=apollon_name,
+                mime="text/csv",
+            )
             st.download_button(
                 t("export_csv", "Download CSV"),
                 data=to_csv_bytes(out_f),
@@ -975,6 +1016,7 @@ with SessionLocal() as session:
                 st.success(
                     f"{t('backfill_upserted', 'Upserted rows into published_rates')}: {n:,}"
                 )
+
 
 
 
