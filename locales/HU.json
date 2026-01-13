@@ -4,6 +4,14 @@
   "lang": "Nyelv",
   "date": "Dátum",
   "rows": "Sorok",
+
+  "auth_login_title": "Bejelentkezés",
+  "auth_username": "Felhasználónév",
+  "auth_password": "Jelszó",
+  "auth_sign_in": "Bejelentkezés",
+  "auth_invalid": "Hibás felhasználónév vagy jelszó.",
+  "auth_signed_in_as": "Bejelentkezve mint: {user}",
+  "auth_logout": "Kijelentkezés",
   
   "menu": "Menü",
   "menu_fx": "1) FX import (TB CSV)",
